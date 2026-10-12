@@ -14,7 +14,7 @@ gave are the table at the end.
     config.context.php             1 line, requires EdgeContext.php               <- the only docroot file of ours
     core/components/pustak/lib/    common/lib — EdgeContext, SsoConfig, the storage gate, …
     the elements                   common/{chunks,snippets,plugins,templates}
-    setup/*.py, import.py          the sequence below
+    setup/*.py                     the sequence below
 
 `index.php` is **not** modified. Stock MODX already reads `config.context.php` for a context key if
 it is present. That file requires `core/components/pustak/lib/EdgeContext.php`, which takes the key
@@ -55,16 +55,31 @@ repository's `setup/config.xml` is a template whose values come from the environ
     php "$MODX_ROOT/setup/cli-install.php" < /dev/null
 
 `MODX_ADMIN_USER` must equal `admin_username` in your estate file. The installer leaves the admin
-password in `$MODX_ROOT/setup/config.xml`; step 3 deletes that directory.
+password in `$MODX_ROOT/setup/config.xml`; step 4 deletes that directory.
 
-**2. Contexts, pages, access, sign-in** — in this order:
+**2. The Extras and the pustak package**, before anything that makes pages — the pages are made
+on pustak's templates:
+
+    php setup/install-extras.php                       # pdoTools and SimpleSearch, from modx.com
+
+Then install **pustak**: the chunks, snippets, plugins and page templates of `common/`, the template
+variables `common/tvs.json` declares (bound to their templates), and `common/lib` at
+`core/components/pustak/lib/`. Download `pustak-<version>.transport.zip` from the repository's
+releases, or build it with `php tools/build-transport.php --source . --version <version> --out <dir>`;
+then in the manager: *Extras → Installer → Upload a package*, choose the zip, *Install*.
+`php tools/verify-transport.php --source .` (with `MODX_ROOT` set) checks that what MODX holds is
+byte for byte what the package was built from.
+
+**3. Contexts, pages, access, sign-in** — in this order:
 
     python3 setup/01-contexts-users.py     # contexts, context settings, users
     python3 setup/03-resources-skeleton.py # support / content / files per context, auth pages
     python3 setup/04-access-control.py     # groups, grants, page + file protection
     python3 setup/12-sso.py                # sso-login / sso-logout / sso-callback per context
 
-**3. Bind each context to its names, then the system settings.** On a bench:
+03 finds the templates by name and refuses if the package is not installed.
+
+**4. Bind each context to its names, then the system settings.** On a bench:
 
     python3 setup/bench-domains.py --profile local     # php -S port doors (estate domains.bench_ports)
     python3 setup/bench-domains.py                     # or: <context>.<bench_zone> behind a web server
@@ -74,19 +89,6 @@ Either way the binding runs AFTER 03, which writes each context's settings, and 
 refuses to run until every context has a host:
 
     python3 setup/02-system-settings.py
-
-**4. The Extras and the elements.**
-
-    php setup/install-extras.php                       # pdoTools and SimpleSearch, from modx.com
-
-Then install the **pustak** package — the chunks, snippets and plugins of `common/`, and
-`common/lib` at `core/components/pustak/lib/`. Build it with
-`php tools/build-transport.php --source . --version <version> --out <dir>`, then in the manager:
-*Extras → Installer → Upload a package*, choose `pustak-<version>.transport.zip`, *Install*.
-`php tools/verify-transport.php --source .` (with `MODX_ROOT` set) checks that what MODX holds is
-byte for byte what the package was built from. Then the templates:
-
-    python3 import.py                                  # chunks, snippets and templates from common/
 
 **5. Last.**
 

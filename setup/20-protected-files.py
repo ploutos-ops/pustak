@@ -34,6 +34,8 @@ import sys
 
 import pymysql
 from domains import db_config
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+from canon import db_body   # the database form: what the element deploy writes, byte for byte
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_NAME = 'storeProtectedFile'
@@ -138,7 +140,7 @@ else:
 
 # --- 3: the plugin, bound to what its .events file declares (13's upsert, generalised) ---------
 with open(PLUGIN_FILE, encoding='utf-8') as fh:
-    code = fh.read()
+    code = db_body(fh.read())
 with open(PLUGIN_FILE + '.events', encoding='utf-8') as fh:
     events = [ln.strip() for ln in fh if ln.strip()]
 

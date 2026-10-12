@@ -27,8 +27,11 @@ left untouched (a re-run never blanks a configured token):
 Idempotent. Run with the DB env (MODX_DB_*). Clear the MODx cache afterwards.
 """
 import os
+import sys
 import pymysql
 from domains import db_config
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+from canon import db_body   # the database form: what the element deploy writes, byte for byte
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_FILE = os.path.join(HERE, '..', 'common', 'plugins', 'deliverStorageFile')
@@ -59,7 +62,7 @@ print('storage.* settings ensured.')
 
 # --- plugin element + event binding -----------------------------------------------------------
 with open(PLUGIN_FILE, encoding='utf-8') as fh:
-    code = fh.read()
+    code = db_body(fh.read())
 
 cur.execute("SELECT id FROM modx_site_plugins WHERE name='deliverStorageFile'")
 row = cur.fetchone()

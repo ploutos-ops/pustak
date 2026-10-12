@@ -635,9 +635,10 @@ docroot archive and database seed. This is how a known estate is rebuilt.
   `index.php`, `manager/` and `connectors/`. The "advanced" distribution contains only `core/` and
   `setup/`, and our current install guide uses it for upgrades only. Fix group ownership first,
   otherwise MODx runs with no cache and no log and cannot report it. Run the CLI installer with
-  standard input closed, otherwise it can hang silently. Install the Extras, then run `setup/01`,
-  `02`, `03`, `04`, `11`, `12`, then `import.py`, then `setup/07-regenerate-uris.php` last, because
-  URIs are a stored column. Write `config.context.php`. The guide lists the responses a correct
+  standard input closed, otherwise it can hang silently. Install pdoTools, SimpleSearch and the
+  pustak package (it carries the templates, which the setup scripts find by name), then run
+  `setup/01`, `03`, `04`, `12`, bind the domains, `02`, and `setup/07-regenerate-uris.php` last,
+  because URIs are a stored column. Write `config.context.php`. The guide lists the responses a correct
   install gives. The only file an installer edits is the estate file (3).
 - **From the install medium** (`docs/production-install.md`). The content repository holds
   `install/modx-docroot.tar.gz` and `install/modx-seed.sql.gz`. The archive is third-party software
@@ -815,7 +816,7 @@ Each of these is real, but none needs a full section.
 | Part | Form | Contents |
 |---|---|---|
 | **The management repository** | a fresh public git repository | `setup/` (install sequence, access model, verifiers, seed and docroot builders, restore helpers, `apply-environment.php` and its library, the upgrade tooling), `import.py`, `export.py`, `canon.py`, `p12-import.py`, `doors.py`, `clear-cache.php`, `tests/`, and the documents in `docs/` that describe software rather than this estate |
-| **A MODx Extra (transport package)** | a package installable through MODx's Package Management | the in-MODx parts: the vocabulary chunks (cards, sections, folder pages, head), `tableRenderer` and `feedView`, the sign-in snippets with `SsoConfig`, `GoogleToken` and `ssoRenew`, `userHome`, `unauthorizedNotice`, `loginWidget`, `jumpNav`, `contextBase`, the storage gate plugins with `StorageIdentity`, `protectOnSave`, `edgeAddress`, `EdgeContext` and the 404 page, and `actuatorInfo` with `Actuator` and `Diagnostics` |
+| **A MODx Extra (transport package)** | a package installable through MODx's Package Management | the in-MODx parts: the vocabulary chunks (cards, sections, folder pages, head), `tableRenderer` and `feedView`, the sign-in snippets with `SsoConfig`, `GoogleToken` and `ssoRenew`, `userHome`, `unauthorizedNotice`, `loginWidget`, `jumpNav`, `contextBase`, the storage gate plugins with `StorageIdentity`, `protectOnSave`, `edgeAddress`, `EdgeContext` and the 404 page, and `actuatorInfo` with `Actuator` and `Diagnostics`, and the page templates with the template variables they read (`pagecontent`, `initjs`) |
 | **Upstream request: environment configuration** | a comment on modxcms/revolution issue #16766 | a per-installation file outside the database, applied by one program, so that a restore cannot carry one environment's identity into another (section 5) |
 | **Upstream request: context by header** | a new issue on modxcms/revolution | stock `index.php` already reads `config.context.php`; propose that core can take the context from a header the edge sets and overwrites, refusing contexts the database lacks (section 4) |
 | **The install guide** | the README and `docs/installation.md` | install from a stock distribution with the Extra and the scripts, with only an estate file to edit |

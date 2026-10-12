@@ -1,0 +1,13 @@
+{
+  "$why": "The template variables the templates in common/templates read, and which templates carry each. tools/build-transport.php ships them in the pustak package and binds them by template name after install; a template that reads [[*pagecontent]] without the variable renders an empty slot and says nothing.",
+  "pagecontent": {
+    "caption": "Page Content",
+    "type": "textarea",
+    "templates": ["page.folder", "page.full", "page.public"]
+  },
+  "initjs": {
+    "caption": "Init JS (per-resource, runs on DOMContentLoaded)",
+    "type": "textarea",
+    "templates": ["page.folder", "page.full", "page.public"]
+  }
+}

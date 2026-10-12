@@ -55,7 +55,7 @@ CTX_NAME = os.environ.get('CTX_NAME', 'Claude')
 CTX_DESC = os.environ.get('CTX_DESC', 'Internal agent-documentation context')
 CTX_HOST = _required('CTX_HOST', 'the bench host has no default')          # bench host; prod host via setup/10
 CTX_SITENAME = os.environ.get('CTX_SITENAME', 'Claude')
-TEMPLATE = int(os.environ.get('CTX_TEMPLATE', '3'))                 # 3 = page.public (clean, no nav dep)
+TEMPLATE_NAME = os.environ.get('CTX_TEMPLATE', 'page.public')      # a template NAME (clean, no nav dep); ids differ per database
 # No default: /srv/local/modx was the dev bench and it stopped existing when the bench
 # became staging (2026-08-14). A guessed docroot addresses a MODx nobody runs.
 MODX_ROOT = os.environ.get('MODX_ROOT') or sys.exit(
@@ -71,6 +71,8 @@ STARTUP_HTML = os.environ.get('CTX_STARTUP_HTML') or (
     "<p>Add pages under this context; edit their content in VSCode through the seat and deploy.</p>")
 
 conn = pymysql.connect(**DB); cur = conn.cursor()
+from templates import template_id
+TEMPLATE = template_id(cur, TEMPLATE_NAME)
 
 # Photograph every settings row before this pass touches anything, and
 # REFUSE THE COMMIT if a setting that had a value no longer does. Three times on
@@ -136,7 +138,7 @@ cur.execute("UPDATE modx_site_content SET uri=%s WHERE id=%s AND (uri IS NULL OR
 # site-wide default happens to be, which after our renumbering is an unpublished resource.
 #
 # Parity with 03 is deliberate: same aliases, same templates, same unpublished+hidden support parent.
-TMPL_FULL, TMPL_PUBLIC, TMPL_BLANK = 4, 3, 2
+TMPL_FULL, TMPL_PUBLIC, TMPL_BLANK = (template_id(cur, n) for n in ('page.full', 'page.public', 'page.folder'))
 # The logout page runs the SSO session-teardown snippet UNCACHED. setup/12 installs this on the
 # gated contexts (family/corporate/worldview); a context 12 does not touch (like claude) still needs
 # a working logout because the shared navbar renders [[!loginWidget]] everywhere and a cross-context

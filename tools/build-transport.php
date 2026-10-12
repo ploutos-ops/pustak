@@ -11,11 +11,13 @@
  *   common/chunks/*          chunks      (name = file name less .html, as import.py names them —
  *   common/snippets/*        snippets     only .html/.php are stripped, so claude.js stays claude.js)
  *   common/plugins/<name>    plugins, each bound to the events its <name>.events file lists
+ *   common/templates/*       templates (name = file name less .html)
+ *   common/tvs.json          template variables, each bound after install to the templates it names
  *   common/lib/              files, placed at core/components/pustak/lib/ — where every element
  *                            above requires them from
  *   docs/content-vocabulary.md   the package's readme: the words a page may use
  *   LICENSE                  the package's licence, when the tree holds one
- * Templates, settings and contexts are not in it: they are the estate's, written by setup/.
+ * Settings and contexts are not in it: they are the estate's, written by setup/.
  *
  * Elements are matched BY NAME on install (the same rule import.py applies), filed under the
  * category `pustak`, and their bodies are the files' bytes. MODX_ROOT names a MODx install only
@@ -30,6 +32,8 @@ use MODX\Revolution\modChunk;
 use MODX\Revolution\modPlugin;
 use MODX\Revolution\modPluginEvent;
 use MODX\Revolution\modSnippet;
+use MODX\Revolution\modTemplate;
+use MODX\Revolution\modTemplateVar;
 use MODX\Revolution\modX;
 use MODX\Revolution\Transport\modPackageBuilder;
 use xPDO\Transport\xPDOTransport;
@@ -65,16 +69,23 @@ $category = $modx->newObject(modCategory::class);
 $category->set('category', PKG);
 
 $chunks = [];
+// THE DATABASE FORM (canon.py db_body): LF line endings, no trailing newline — what the element
+// deploy and setup/ write, so an element installed by this package and one deployed by them are the
+// same bytes, and the protection verifier finds no one-byte drift.
+$dbBody = function (string $b): string {
+    $b = str_replace(["\r\n", "\r"], "\n", $b);
+    return str_ends_with($b, "\n") ? substr($b, 0, -1) : $b;
+};
 $elementName = fn(string $f) => preg_replace('/\.(html|php)$/', '', basename($f));
 foreach (array_filter(glob("$source/common/chunks/*"), 'is_file') as $f) {
     $o = $modx->newObject(modChunk::class);
-    $o->fromArray(['name' => $elementName($f), 'snippet' => file_get_contents($f)], '', true, true);
+    $o->fromArray(['name' => $elementName($f), 'snippet' => $dbBody(file_get_contents($f))], '', true, true);
     $chunks[] = $o;
 }
 $snippets = [];
 foreach (array_filter(glob("$source/common/snippets/*"), 'is_file') as $f) {
     $o = $modx->newObject(modSnippet::class);
-    $o->fromArray(['name' => $elementName($f), 'snippet' => file_get_contents($f)], '', true, true);
+    $o->fromArray(['name' => $elementName($f), 'snippet' => $dbBody(file_get_contents($f))], '', true, true);
     $snippets[] = $o;
 }
 $plugins = [];
@@ -83,7 +94,7 @@ foreach (glob("$source/common/plugins/*") as $f) {
     $name = basename($f);
     if (!is_file("$f.events")) $fail("plugin $name has no $name.events — a plugin bound to nothing does nothing");
     $o = $modx->newObject(modPlugin::class);
-    $o->fromArray(['name' => $name, 'plugincode' => file_get_contents($f)], '', true, true);
+    $o->fromArray(['name' => $name, 'plugincode' => $dbBody(file_get_contents($f))], '', true, true);
     $events = [];
     foreach (array_filter(array_map('trim', file("$f.events"))) as $event) {
         $e = $modx->newObject(modPluginEvent::class);
@@ -93,10 +104,39 @@ foreach (glob("$source/common/plugins/*") as $f) {
     $o->addMany($events, 'PluginEvents');
     $plugins[] = $o;
 }
+$templates = [];
+foreach (array_filter(glob("$source/common/templates/*"), 'is_file') as $f) {
+    $o = $modx->newObject(modTemplate::class);
+    $o->fromArray(['templatename' => $elementName($f), 'content' => $dbBody(file_get_contents($f))], '', true, true);
+    $templates[] = $o;
+}
+// Template variables, and which templates carry each. The binding row needs both ids, which only
+// exist on the target, so it is made after install by a resolver that looks both up BY NAME.
+$tvs = []; $bind = [];
+if (is_file("$source/common/tvs.json")) {
+    $decl = json_decode(file_get_contents("$source/common/tvs.json"), true);
+    if (!is_array($decl)) $fail('common/tvs.json is not a JSON object');
+    $names = array_map($elementName, array_filter(glob("$source/common/templates/*"), 'is_file'));
+    foreach ($decl as $name => $tv) {
+        if ($name[0] === '$') continue;
+        foreach ($tv['templates'] ?? [] as $t) {
+            if (!in_array($t, $names, true)) $fail("common/tvs.json binds $name to template $t, which common/templates/ does not hold");
+        }
+        $o = $modx->newObject(modTemplateVar::class);
+        $o->fromArray(['name' => $name, 'caption' => (string) ($tv['caption'] ?? $name),
+                       'type' => (string) ($tv['type'] ?? 'text'), 'description' => (string) ($tv['description'] ?? ''),
+                       'display' => 'default', 'default_text' => ''], '', true, true);
+        $tvs[] = $o;
+        $bind[$name] = array_values($tv['templates'] ?? []);
+    }
+}
 $category->addMany($chunks, 'Chunks');
 $category->addMany($snippets, 'Snippets');
 $category->addMany($plugins, 'Plugins');
-$counts = ['chunks' => count($chunks), 'snippets' => count($snippets), 'plugins' => count($plugins)];
+$category->addMany($templates, 'Templates');
+$category->addMany($tvs, 'TemplateVars');
+$counts = ['chunks' => count($chunks), 'snippets' => count($snippets), 'plugins' => count($plugins),
+           'templates' => count($templates), 'tvs' => count($tvs)];
 
 $byName = [xPDOTransport::PRESERVE_KEYS => false, xPDOTransport::UPDATE_OBJECT => true, xPDOTransport::UNIQUE_KEY => 'name'];
 $vehicle = $builder->createVehicle($category, [
@@ -107,6 +147,8 @@ $vehicle = $builder->createVehicle($category, [
     xPDOTransport::RELATED_OBJECT_ATTRIBUTES => [
         'Chunks' => $byName,
         'Snippets' => $byName,
+        'Templates' => [xPDOTransport::PRESERVE_KEYS => false, xPDOTransport::UPDATE_OBJECT => true, xPDOTransport::UNIQUE_KEY => 'templatename'],
+        'TemplateVars' => $byName,
         'Plugins' => $byName + [
             xPDOTransport::RELATED_OBJECTS => true,
             xPDOTransport::RELATED_OBJECT_ATTRIBUTES => [
@@ -126,6 +168,32 @@ $stage = sys_get_temp_dir() . '/pustak-build-' . getmypid();
 exec('cp -a ' . escapeshellarg("$source/common/lib") . ' ' . escapeshellarg("$stage/" . PKG . '/lib'), $_, $rc);
 if ($rc !== 0) $fail("could not stage common/lib");
 $vehicle->resolve('file', ['source' => "$stage/" . PKG, 'target' => "return MODX_CORE_PATH . 'components/';"]);
+$resolver = "$stage/bind-tvs.php";
+file_put_contents($resolver, "<?php\n// Binds each template variable to the templates common/tvs.json names, by name, on install and upgrade.\n"
+    . '$bind = ' . var_export($bind, true) . ";\n" . <<<'PHP'
+$modx = $transport->xpdo;
+if (!in_array($options[xPDO\Transport\xPDOTransport::PACKAGE_ACTION] ?? null,
+              [xPDO\Transport\xPDOTransport::ACTION_INSTALL, xPDO\Transport\xPDOTransport::ACTION_UPGRADE], true)) {
+    return true;
+}
+foreach ($bind as $tvName => $templates) {
+    $tv = $modx->getObject(MODX\Revolution\modTemplateVar::class, ['name' => $tvName]);
+    if (!$tv) { $modx->log(xPDO\xPDO::LOG_LEVEL_ERROR, "pustak: template variable $tvName was not installed"); return false; }
+    foreach ($templates as $tName) {
+        $t = $modx->getObject(MODX\Revolution\modTemplate::class, ['templatename' => $tName]);
+        if (!$t) { $modx->log(xPDO\xPDO::LOG_LEVEL_ERROR, "pustak: template $tName was not installed"); return false; }
+        $key = ['tmplvarid' => $tv->get('id'), 'templateid' => $t->get('id')];
+        if (!$modx->getObject(MODX\Revolution\modTemplateVarTemplate::class, $key)) {
+            $row = $modx->newObject(MODX\Revolution\modTemplateVarTemplate::class);
+            $row->fromArray($key + ['rank' => 0], '', true, true);
+            $row->save();
+        }
+    }
+}
+return true;
+PHP
+);
+$vehicle->resolve('php', ['source' => $resolver]);
 $builder->putVehicle($vehicle);
 
 $attributes = [];
@@ -138,6 +206,6 @@ exec('rm -rf ' . escapeshellarg($stage));
 if (!$ok) $fail('xPDO could not pack the package', 1);
 $zip = $out . PKG . "-$version.transport.zip";
 if (!is_file($zip)) $fail("packed, but $zip is not there", 1);
-printf("build-transport: %s (%d chunks, %d snippets, %d plugins, lib %d files)%s\n", $zip,
-    $counts['chunks'], $counts['snippets'], $counts['plugins'],
+printf("build-transport: %s (%d chunks, %d snippets, %d plugins, %d templates, %d template variables, lib %d files)%s\n", $zip,
+    $counts['chunks'], $counts['snippets'], $counts['plugins'], $counts['templates'], $counts['tvs'],
     count(glob("$source/common/lib/*")), isset($attributes['license']) ? '' : ' — NO LICENSE in the source tree');

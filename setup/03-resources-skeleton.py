@@ -16,10 +16,11 @@ cur = conn.cursor()
 
 now = int(time.time())
 
-# Template IDs
-TMPL_FULL   = 4   # page.full
-TMPL_PUBLIC = 3   # page.public
-TMPL_BLANK  = 2   # page.folder
+# Templates, by name: the package installed them and the ids are this database's.
+from templates import template_id
+TMPL_FULL   = template_id(cur, 'page.full')
+TMPL_PUBLIC = template_id(cur, 'page.public')
+TMPL_BLANK  = template_id(cur, 'page.folder')
 
 def get_resource(context_key, alias, parent=0):
     cur.execute(
