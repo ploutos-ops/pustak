@@ -1,0 +1,481 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "modx /actuator/info",
+        "version": "1",
+        "description": "Rendered from $CONTRACT in common/snippets/actuatorInfo.php by tests/actuator-typed.php --write-contract. Never edited by hand."
+    },
+    "paths": {
+        "/actuator/info": {
+            "get": {
+                "summary": "/actuator/info, the info report",
+                "responses": {
+                    "200": {
+                        "description": "the info report",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/info"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "a refusal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/error"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "a refusal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/actuator/info?report=elements": {
+            "get": {
+                "summary": "/actuator/info, the elements report",
+                "responses": {
+                    "200": {
+                        "description": "the elements report",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/elements"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "a refusal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/error"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "a refusal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/actuator/info?report=settings": {
+            "get": {
+                "summary": "/actuator/info, the settings report",
+                "responses": {
+                    "200": {
+                        "description": "the settings report",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/settings"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "a refusal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/error"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "a refusal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/actuator/info?report=log": {
+            "get": {
+                "summary": "/actuator/info, the log report",
+                "responses": {
+                    "200": {
+                        "description": "the log report",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/log"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "a refusal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/error"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "a refusal",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "error": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "error"
+                ],
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    },
+                    "detail": {
+                        "type": "string"
+                    }
+                }
+            },
+            "info": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "application",
+                    "ready",
+                    "requirements",
+                    "environment",
+                    "role",
+                    "commit",
+                    "modx_version"
+                ],
+                "properties": {
+                    "application": {
+                        "type": "string"
+                    },
+                    "ready": {
+                        "type": "boolean"
+                    },
+                    "requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "key",
+                                "ok",
+                                "detail"
+                            ],
+                            "properties": {
+                                "key": {
+                                    "type": "string"
+                                },
+                                "ok": {
+                                    "type": "boolean"
+                                },
+                                "detail": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "type": "string"
+                    },
+                    "commit": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "modx_version": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "additionalProperties": false,
+                        "required": [
+                            "settings_version",
+                            "file_version",
+                            "agree"
+                        ],
+                        "properties": {
+                            "settings_version": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "file_version": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "agree": {
+                                "type": [
+                                    "boolean",
+                                    "null"
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
+            "elements": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "environment",
+                    "caller",
+                    "elements"
+                ],
+                "properties": {
+                    "environment": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "caller": {
+                        "type": "string"
+                    },
+                    "elements": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "kind",
+                                "name",
+                                "bytes",
+                                "sha1"
+                            ],
+                            "properties": {
+                                "kind": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "bytes": {
+                                    "type": "integer"
+                                },
+                                "sha1": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "settings": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "environment",
+                    "caller",
+                    "settings",
+                    "note"
+                ],
+                "properties": {
+                    "environment": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "caller": {
+                        "type": "string"
+                    },
+                    "settings": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                            "storage.base_url",
+                            "storage.environment",
+                            "sso.provider",
+                            "log_target",
+                            "log_level"
+                        ],
+                        "properties": {
+                            "storage.base_url": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "storage.environment": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "sso.provider": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "log_target": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "log_level": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            }
+                        }
+                    },
+                    "note": {
+                        "type": "string"
+                    }
+                }
+            },
+            "log": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "path",
+                    "exists",
+                    "reason",
+                    "size",
+                    "mtime",
+                    "dir",
+                    "dir_exists",
+                    "dir_writable",
+                    "window_bytes",
+                    "scanned",
+                    "matched",
+                    "truncated",
+                    "lines",
+                    "caller",
+                    "markers",
+                    "environment"
+                ],
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "exists": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "size": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    },
+                    "mtime": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    },
+                    "dir": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "dir_exists": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    },
+                    "dir_writable": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ]
+                    },
+                    "window_bytes": {
+                        "type": "integer"
+                    },
+                    "scanned": {
+                        "type": "integer"
+                    },
+                    "matched": {
+                        "type": "integer"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "caller": {
+                        "type": "string"
+                    },
+                    "markers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "environment": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}

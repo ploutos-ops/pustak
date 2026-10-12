@@ -1,0 +1,29 @@
+<!-- IF THIS FOOTER'S HEIGHT CHANGES (56px today), change the 56px in Bootstrap.5.CSS's
+     .modx-leftnav-col height too: the left column is sized to end where this footer starts, and
+     a mismatch pushes the column up at the bottom of every page (the owner, 2026-10-02). -->
+<footer class="footer sticky-bottom"  style="background-color: #ADD8E6; color: #333;">
+<div class="container">
+
+    <div class="row">
+        <div class="col-lg-4">
+            <p><small>
+                    total time: [^t^], query time: [^qt^]<br />
+                    <!-- queries: [^q^], --> ID: [[*id]], [[*editedon:strtotime:date=`%a %b %e, %Y, %r, %Z`]]
+                </small></p>
+        </div><!-- col-lg-4 -->
+
+        <div class="col-lg-4">
+            [[!SimpleSearchForm? &landing=`[[++search_page]]`]]
+        </div><!-- col-lg-4 -->
+
+
+        <div class="col-lg-4">
+
+
+            [[!loginWidget]]
+
+[[!ipaddr]]
+        </div> <!-- col-4 -->
+    </div> <!-- row -->
+</div> <!-- container -->
+</footer>

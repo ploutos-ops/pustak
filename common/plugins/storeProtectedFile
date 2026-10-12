@@ -1,0 +1,253 @@
+/**
+ * storeProtectedFile — the UPLOAD half of the protected-file story (deliverStorageFile is the download half).
+ * Event: OnDocFormSave.
+ *
+ * WHY THIS EXISTS. Since the download half was built, a protected file is a native Static Resource whose `content` is the
+ * bare sha1 of its bytes; `deliverStorageFile` streams those bytes from the Storage service behind
+ * the same RBAC as any page. But nothing put the bytes THERE except a migration script and a curl —
+ * The owner, 2026-09-06: an editor cannot be asked to run curl and paste a sha1. This plugin closes
+ * that: the editor works entirely in the manager — upload the file into the **Protected** media
+ * source, create a Static Resource pointing at it, save — and the save does what the curl did:
+ * push the bytes to the Storage service with this ground's own identity, write the sha1 into
+ * `content`, remove the loose disk copy. `store-file.py` (repo root) is the same act as a one-file
+ * CLI for anything that is not a manager session.
+ *
+ * SCOPE — three cheap bails, in order, before any network I/O:
+ *   1. not a Static Resource                             -> not ours (instanceof, in memory);
+ *   2. `content` already a bare 40-hex sha1              -> already storage-backed, done;
+ *   3. the content path does not resolve to a file under the Protected directory -> a DISK static
+ *      resource, which is a supported thing (both kinds coexist) and none of our business.
+ * THE FILE BEING IN core/protected/ IS THE MARKER, not a media source id. Core's own
+ * modStaticResource::getSourceFile says why a source id can never work: "that's too complex to
+ * resolve without full media source support on static resources" — a static resource CARRIES no
+ * media source; the manager's browser just writes a path string into `content`. The first build
+ * matched on $resource->get('source') and its drill went green on a field the manager never sets —
+ * the drill exercised the assumption, not the manager (caught 2026-09-06, on the owner's first real
+ * upload). The Protected DIRECTORY comes from the media source row `storage.protected_source`
+ * names (basePath, read at runtime), so the manager's Files tab and this plugin can never disagree
+ * about where "protected" is.
+ *
+ * NEVER REFUSES THE SAVE (protectOnSave's rule, kept deliberately: the owner writing must never be
+ * blocked by plumbing). Every failure leaves the resource exactly as saved — content still the
+ * file path — and says why in the error log. That failure mode is SAFE here by construction: the
+ * Protected source lives under core/, which the webserver denies, and a path-content static
+ * resource is only ever served THROUGH MODx with the same RBAC the sha1 form gets. What is lost
+ * until a later save retries is dedup and central bytes, not protection.
+ *
+ * WHAT SUCCESS DOES, in order, and why the order:
+ *   upload -> verify the door's sha1 equals the sha1 computed here -> content := sha1 (+ the real
+ *   content_type when the extension resolves one and the editor left the default) -> save ->
+ *   unlink the disk copy. The file is deleted LAST, only after the resource row references bytes
+ *   the door has confirmed holding — so no step can strand a resource pointing at nothing.
+ *   Upload is idempotent per (system, environment): re-absorbing identical bytes is a no-op at
+ *   the door, so a retried save costs nothing and leaks no holds.
+ *
+ * WHO WE ARE AT THE DOOR: the ground's client certificate, exactly as deliverStorageFile presents
+ * it (StorageIdentity — modx's bearer row was removed 2026-08-14; there is no token path).
+ * Writes pin to this ground's own (system, environment) pair at the door itself, so a dev bench
+ * physically cannot write production blobs whatever its settings claim.
+ *
+ * COMPATIBILITY WATCH (check on every MODX upgrade):
+ *   OnDocFormSave params (id, resource) — same contract protectOnSave documents;
+ *   modStaticResource (the instanceof scope); modMediaSource properties basePath/basePathRelative;
+ *   modContentType.file_extensions (the central extension registry, same one script 18 reads).
+ * Storage contract (infra): POST /v1/files multipart {file, system_id, environment};
+ * response carries sha1. Config: storage.base_url / storage.environment / storage.protected_source.
+ */
+
+$e = $modx->event;
+$params = ($e && is_array($e->params)) ? $e->params : [];
+
+$resource = null;
+foreach (['resource', 'object'] as $k) {
+    if (!empty($params[$k]) && $params[$k] instanceof MODX\Revolution\modResource) { $resource = $params[$k]; break; }
+}
+if (!$resource && !empty($params['id'])) {
+    $resource = $modx->getObject(MODX\Revolution\modResource::class, (int) $params['id']);
+}
+if (!($resource instanceof \MODX\Revolution\modStaticResource)) {
+    return;
+}
+
+$content = trim((string) $resource->get('content'));
+if ($content === '' || preg_match('/^[0-9a-f]{40}$/i', $content)) {
+    return;                                             // empty, or already storage-backed
+}
+
+$log = function ($m) use ($modx) { $modx->log(modX::LOG_LEVEL_ERROR, '[storeProtectedFile] ' . $m); };
+
+// ── the Protected DIRECTORY, from the media source row setup/20 wrote ──────────────────────────
+$protectedId = (int) $modx->getOption('storage.protected_source', null, 0);
+if ($protectedId <= 0) {
+    return;                                             // ground not converged for this — inert, by design
+}
+$src = $modx->getObject(\MODX\Revolution\Sources\modMediaSource::class, $protectedId);
+if (!$src) {
+    $log("storage.protected_source={$protectedId} names no media source on this ground. "
+       . 'Run setup/20-protected-files.py. Resource ' . $resource->get('id') . ' left as saved.');
+    return;
+}
+$props    = $src->getPropertyList();
+$basePath = (string) ($props['basePath'] ?? '');
+$relative = !isset($props['basePathRelative']) || !empty($props['basePathRelative']);
+if ($basePath === '') {
+    $log('the Protected media source declares no basePath. Resource ' . $resource->get('id') . ' left as saved.');
+    return;
+}
+if ($relative) {
+    $basePath = rtrim(MODX_BASE_PATH, '/') . '/' . ltrim($basePath, '/');
+}
+$pdir = rtrim($basePath, '/');
+
+// ── does the content path resolve to a file in that directory? ─────────────────────────────────
+// The manager writes whatever string the editor browsed or typed: '1.pdf', 'core/protected/1.pdf',
+// '/core/protected/1.pdf' have all been seen from one dialog. Sanitize exactly as core's
+// getSourceFile does (the ../ regex), then try the string against the Protected dir with and
+// without its own prefix. Not found there => not a protected upload => not ours.
+$rel = preg_replace(['/\.*[\/|\\\]/i', '/[\/|\\\]+/i'], ['/', '/'], $content);
+$rel = ltrim($rel, '/');
+$prefix = ltrim(str_replace(MODX_BASE_PATH, '', $pdir . '/'), '/');   // e.g. 'core/protected/'
+$candidates = [$pdir . '/' . $rel];
+if ($prefix !== '' && str_starts_with($rel, $prefix)) {
+    $candidates[] = $pdir . '/' . substr($rel, strlen($prefix));
+}
+$candidates[] = $pdir . '/' . basename($rel);
+$file = null;
+foreach ($candidates as $c) {
+    if (is_file($c) && is_readable($c)) { $file = $c; break; }
+}
+if ($file === null) {
+    // ── THE STALE-FORM REVERT, measured on the first real use (resource 1654, 2026-09-06). The
+    // absorb succeeds, the manager form is STILL OPEN showing the old path, and the editor's next
+    // save writes '1.pdf' back over the sha1 — with the file long gone, a silent return here
+    // leaves the revert standing and the resource serving nothing. So a successful absorb records
+    // {file, sha1} in the resource's own properties (below), and a later save whose content names
+    // that recorded file HEALS back to the sha1. The resource carries its own memory; no second
+    // store of the fact anywhere else.
+    $rec = $resource->getProperties('storeProtectedFile');
+    if (!empty($rec['sha1']) && !empty($rec['file'])
+            && in_array($rec['file'], [$rel, basename($rel)], true)
+            && preg_match('/^[0-9a-f]{40}$/', (string) $rec['sha1'])) {
+        $resource->set('content', $rec['sha1']);
+        if ($resource->save()) {
+            $modx->log(modX::LOG_LEVEL_INFO, '[storeProtectedFile] healed resource '
+                . $resource->get('id') . ": a stale save wrote '{$rel}' back over the sha1; "
+                . 'restored ' . $rec['sha1'] . ' from the absorb record.');
+        } else {
+            $log('could not heal resource ' . $resource->get('id') . " back to its sha1 after a "
+               . "stale-form save of '{$rel}' — content is a path naming no file.");
+        }
+        return;
+    }
+    if ($prefix !== '' && str_starts_with($rel, $prefix)) {
+        $log("content of resource " . $resource->get('id') . " names '{$rel}' under the Protected "
+           . 'directory, but no such file exists and no absorb is recorded — nothing to serve.');
+    }
+    return;                                             // a disk static resource; both kinds coexist
+}
+$rel  = basename($file);
+$sha1 = sha1_file($file);
+
+// ── the door: same identity, same https refusal as deliverStorageFile ──────────────────────────
+$base = rtrim(trim((string) $modx->getOption('storage.base_url')), '/');   // no default: the ground's setting
+if ($base === '') {
+    $log('REFUSING: storage.base_url is not set on this ground, so there is no storage door to absorb into. '
+       . 'No request was made; resource ' . $resource->get('id') . ' left as saved.');
+    return;
+}
+if (stripos($base, 'https://') !== 0) {
+    $log("REFUSING: storage.base_url is '{$base}' — the door authenticates by client certificate, "
+       . 'which cannot be presented without TLS. No request was made; resource '
+       . $resource->get('id') . ' left as saved.');
+    return;
+}
+require_once rtrim(MODX_CORE_PATH, '/') . '/components/pustak/lib/Application.php';
+require_once rtrim(MODX_CORE_PATH, '/') . '/components/pustak/lib/StorageIdentity.php';
+$idDir = \Pustak\Modx\Application::config('estate_identity_dir');
+[$idPath, $ident, $idNote] = \Pustak\Modx\StorageIdentity::curlOptions(
+    $idDir,
+    (string) $modx->getOption('storage.modx_token')
+);
+if ($idNote !== null) { $log($idNote); }
+if ($idPath === \Pustak\Modx\StorageIdentity::NONE) { return; }
+
+// THE WRITE'S ENVIRONMENT COMES OFF THE CERTIFICATE, never the setting. The door pins a write to
+// the certificate's own (system, environment) pair, so any other source can only agree or lie —
+// and on staging it LIED: `storage.environment` arrives in a database restored from production's
+// dump, so it said `production` beside a modx@staging certificate and every upload was 403
+// (measured 2026-09-06, first staging run). Same rule as store-file.py: CN=modx@<env> is the one
+// owner of this fact. If the certificate cannot be read, the setting is the honest fallback and
+// the log says the better source failed.
+$env = '';
+$crt = @openssl_x509_parse((string) @file_get_contents(rtrim((string) $idDir, '/') . '/cert.pem'));
+if (is_array($crt) && preg_match('/^modx@([A-Za-z0-9_-]+)$/', (string) ($crt['subject']['CN'] ?? ''), $m)) {
+    $env = $m[1];
+} else {
+    $env = (string) ($modx->getOption('storage.environment') ?: 'production');
+    $log("could not read this ground's environment off the certificate CN — using "
+       . "storage.environment='{$env}', which is a copy and may be stale.");
+}
+
+$ch = curl_init($base . '/v1/files');
+curl_setopt_array($ch, $ident + [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT        => 60,
+    CURLOPT_POST           => true,
+    CURLOPT_POSTFIELDS     => [
+        'file'             => new CURLFile($file, null, basename($file)),
+        'system_id'        => 'modx',
+        'environment'      => $env,
+        'uploaded_by'      => 'storeProtectedFile',
+        'system_object_id' => (string) $resource->get('id'),
+    ],
+]);
+$body = curl_exec($ch);
+$http = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+curl_close($ch);
+if ($http < 200 || $http >= 300) {
+    $log("upload of '{$rel}' refused by the door (http={$http}). Resource " . $resource->get('id')
+       . ' left as saved; the file stays on disk and a later save retries.');
+    return;
+}
+$answer = json_decode((string) $body, true);
+$doorSha = strtolower((string) ($answer['sha1'] ?? ''));
+if ($doorSha !== $sha1) {
+    $log("the door answered sha1 '{$doorSha}' for bytes whose sha1 here is '{$sha1}' — refusing to "
+       . 'reference bytes that are not the file. Resource ' . $resource->get('id') . ' left as saved.');
+    return;
+}
+
+// ── the swap: content := sha1, real content type if the editor left the default ────────────────
+$resource->set('content', $sha1);
+$resource->setProperties(['file' => $rel, 'sha1' => $sha1], 'storeProtectedFile');   // the absorb record the heal above reads
+$ext = strtolower((string) pathinfo($rel, PATHINFO_EXTENSION));
+if ($ext !== '') {
+    // getObject, NOT $resource->getOne('ContentType'): getOne ATTACHES the related object, and
+    // xPDO's save() re-syncs the FK from an attached relation — so a set('content_type', …) after
+    // a getOne is silently undone by the save it was made for. Measured on this bench: the debug
+    // log showed `match ct=8` and the row still saved 1.
+    $curId   = (int) $resource->get('content_type');
+    $current = $curId > 0 ? $modx->getObject(\MODX\Revolution\modContentType::class, $curId) : null;
+    $isDefault = $current && stripos((string) $current->get('mime_type'), 'text/html') !== false;
+    if (!$current || $isDefault) {
+        foreach ($modx->getIterator(\MODX\Revolution\modContentType::class) as $ct) {
+            $exts = array_map('trim', explode(',', strtolower((string) $ct->get('file_extensions'))));
+            if (in_array('.' . $ext, $exts, true)) {
+                $resource->set('content_type', (int) $ct->get('id'));
+                break;
+            }
+        }
+    }
+}
+if (!$resource->save()) {
+    $log('the sha1 swap did not save for resource ' . $resource->get('id')
+       . " — content still the path, file kept at '{$rel}'. The blob upload was idempotent; retry the save.");
+    return;
+}
+if (!unlink($file)) {
+    $log("absorbed '{$rel}' as {$sha1} but could not remove the disk copy at '{$file}' — delete it "
+       . 'by hand; until then it is a second copy of bytes the store now owns.');
+} else {
+    $modx->log(modX::LOG_LEVEL_INFO, '[storeProtectedFile] absorbed ' . $rel . ' -> ' . $sha1
+        . ' (resource ' . $resource->get('id') . ', ' . $env . '); disk copy removed.');
+}

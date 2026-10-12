@@ -1,0 +1,52 @@
+/**
+ * edgeAddress — a context reached by one of its bench or staging NAMES builds its links from that name.
+ * Event: OnMODXInit.
+ * It runs after the context's settings are loaded, before any page, snippet or redirect reads site_url.
+ *
+ * WHY. The owner, 2026-10-05: "we are getting away from ssh port forwards". The estate names each MODx
+ * ground <context>.<environment>.modx.<zone> on the internal zone (<context>.dev.modx.<zone> on devbox-fl,
+ * <context>.staging.modx.<zone> on staging), beside the old <context>.modx.<zone> until infra retires
+ * it. The context itself already follows the edge's X-Tenant (EdgeContext.php), so every name
+ * serves the right context with nothing here. What did NOT follow is site_url: every absolute link,
+ * the redirect to sign-in and the OIDC redirect_uri are built from the context setting, which names
+ * ONE address — on a dev box the port door (localhost:<port>), on staging the old name. Measured on
+ * devbox-fl: https://<context>.modx.<zone>/ -> 302 http://localhost:8314/sso-login.
+ *
+ * WHAT IT DOES. For this request only, site_url and http_host become the name the visitor used, when
+ * that name is one of this context's own:
+ *   - the edge said which context (X-Tenant) and it is THIS one — nginx writes that header from the
+ *     name it matched, so the Host is one the estate vouched for, not one a client typed;
+ *   - the configured http_host is <context>.<zone> — true on every bench and staging ground, never
+ *     on production, whose http_host is the public name itself, so production
+ *     is never touched;
+ *   - the Host is <context>.<zone> or <context>.<one label>.<zone> — the old name or the new one.
+ * Anything else — a port door (localhost:<port>), production, a name for another context — leaves
+ * the settings exactly as stored. Nothing is written to the database.
+ *
+ * The scheme is the request's own: nginx passes HTTPS=on on every ssl vhost (roles/nginx modx.conf.j2).
+ */
+
+$ctx = $modx->context ? (string) $modx->context->get('key') : '';
+if ($ctx === '' || $ctx === 'mgr' || $ctx === 'web') {
+    return;
+}
+$tenant = trim((string) ($_SERVER['HTTP_X_TENANT'] ?? ''));
+if ($tenant !== $ctx) {
+    return;
+}
+$configured = strtolower((string) $modx->getOption('http_host'));
+$prefix = strtolower($ctx) . '.';
+if (strpos($configured, $prefix) !== 0) {
+    return;
+}
+$zone = substr($configured, strlen($prefix));
+$host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+if ($zone === '' || $host === '' || $host === $configured) {
+    return;
+}
+if (!preg_match('/^' . preg_quote($prefix, '/') . '(?:[a-z0-9-]+\.)?' . preg_quote($zone, '/') . '$/', $host)) {
+    return;
+}
+$scheme = strtolower((string) ($_SERVER['HTTPS'] ?? '')) === 'on' ? 'https' : 'http';
+$modx->setOption('http_host', $host);
+$modx->setOption('site_url', $scheme . '://' . $host . '/');

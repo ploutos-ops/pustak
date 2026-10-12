@@ -1,0 +1,553 @@
+<!-- pustak:install-scripts --><!-- where an install puts its own scripts, first: a plugin on OnWebPagePrerender replaces this marker -->
+<script>[[$claude.js]]</script>
+
+<script src="[[++estate_cdn_url]]/bootstrap/5.3.8/js/bootstrap.bundle.min.js"></script>
+
+<script>
+// THE ADDRESS AND TIME ON A PRINTOUT — the line kuber's print.js writes. Stamped on load
+// and again on beforeprint, so the time is the moment of printing, not the moment the page
+// loaded. The element is #modxPrintAddress in the templates, hidden on screen by Bootstrap.5.CSS.
+(function () {
+  var stamp = function () {
+    var el = document.getElementById('modxPrintAddress');
+    if (el) el.textContent = window.location.href + ' · printed ' + new Date().toLocaleString();
+  };
+  stamp();
+  window.addEventListener('beforeprint', stamp);
+})();
+</script>
+
+<script>
+// The left navigation's toggle (the owner, 2026-09-18). Two states for two screens: on a wide screen
+// html.leftnav-hidden folds it away and is REMEMBERED (localStorage modx.leftnav); on a phone
+// html.leftnav-open slides it over the page and is forgotten on the next load. The button lives in
+// the top bar and shows only when the page has a #leftNavCol. Keyboard: [ (not inside a field).
+(function () {
+  var col = document.getElementById('leftNavCol');
+  var btn = document.getElementById('leftNavToggle');
+  if (!col || !btn) return;
+  var html = document.documentElement;
+  var wide = function () { return window.matchMedia('(min-width: 768px)').matches; };
+  var isOpen = function () { return wide() ? !html.classList.contains('leftnav-hidden') : html.classList.contains('leftnav-open'); };
+  var reflect = function () { btn.setAttribute('aria-expanded', isOpen() ? 'true' : 'false'); };
+  var toggle = function () {
+    if (wide()) {
+      var hidden = html.classList.toggle('leftnav-hidden');
+      try { localStorage.setItem('modx.leftnav', hidden ? 'hidden' : 'shown'); } catch (e) {}
+    } else {
+      html.classList.toggle('leftnav-open');
+    }
+    reflect();
+  };
+  btn.classList.remove('d-none');
+  btn.addEventListener('click', toggle);
+  // On a phone the shade behind the panel closes it; the panel itself does not.
+  document.addEventListener('click', function (e) {
+    if (!wide() && html.classList.contains('leftnav-open') && !col.contains(e.target) && !btn.contains(e.target)) {
+      html.classList.remove('leftnav-open'); reflect();
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    var t = e.target;
+    if (e.key === '[' && !(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable))) toggle();
+    if (e.key === 'Escape' && html.classList.contains('leftnav-open')) { html.classList.remove('leftnav-open'); reflect(); }
+  });
+  // Crossing the breakpoint drops the phone state, so a rotated tablet does not keep a stale panel.
+  window.matchMedia('(min-width: 768px)').addEventListener('change', function () { html.classList.remove('leftnav-open'); reflect(); });
+  reflect();
+})();
+</script>
+
+
+
+<script>
+document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(trigger => {
+  const targetId = trigger.getAttribute('data-bs-target');
+  const target = document.querySelector(targetId);
+  const textSpan = trigger.querySelector('.toggle-text');
+
+  target.addEventListener('show.bs.collapse', () => {
+    textSpan.textContent = '(Hide)';
+  });
+
+  target.addEventListener('hide.bs.collapse', () => {
+    textSpan.textContent = '(Show)';
+  });
+});
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  const collapseElements = document.querySelectorAll('.row.collapse');
+  // ✅ Pre-initialize all collapse instances
+  collapseElements.forEach(el => {
+    bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
+  });
+
+  const showAllBtn = document.getElementById('showAll');
+  const hideAllBtn = document.getElementById('hideAll');
+
+
+  // ✅ Check if Bootstrap collapsibles exist
+  if (collapseElements.length > 0) {
+    console.log('count is '+collapseElements.length)
+    showAllBtn.style.display = 'inline-block';
+    hideAllBtn.style.display = 'inline-block';
+  }
+
+
+  if (showAllBtn) showAllBtn.addEventListener('click', () => {
+    collapseElements.forEach(el => {
+      bootstrap.Collapse.getInstance(el).show();
+    });
+  });
+
+  if (hideAllBtn) hideAllBtn.addEventListener('click', () => {
+    collapseElements.forEach(el => {
+      bootstrap.Collapse.getInstance(el).hide();
+    });
+  });
+
+  // ONE KEY FOR THE WHOLE PAGE. `e` toggles every section at once: if anything is still closed it
+  // opens them all, otherwise it shuts them. Bound only when the page HAS collapsible sections, so
+  // a key never does something invisible on a page where it would mean nothing.
+  //
+  // It is ignored while you are typing (an input, a textarea, or anything contenteditable — the
+  // search box is the one that matters) and when a modifier is held, so browser shortcuts and
+  // "find on page" keep working.
+  if (collapseElements.length > 0) {
+    document.addEventListener('keydown', ev => {
+      if (ev.key !== 'e' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      const el = ev.target;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      const anyClosed = Array.from(collapseElements).some(c => !c.classList.contains('show'));
+      collapseElements.forEach(c => {
+        const inst = bootstrap.Collapse.getInstance(c);
+        if (anyClosed) { inst.show(); } else { inst.hide(); }
+      });
+    });
+  }
+
+  document.querySelectorAll('.jump-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+
+	const hrefValue = link.getAttribute('href');
+    const fragment = hrefValue.includes('#') ? hrefValue.split('#')[1] : hrefValue;
+
+    const scrollTarget = document.getElementById(fragment);
+    const collapseTarget = document.getElementById(fragment + '_row');
+
+      if (collapseTarget) {
+        bootstrap.Collapse.getOrCreateInstance(collapseTarget).toggle();
+      }
+
+      // THE PAGE IS NOT WHAT SCROLLS, AND `window.scrollTo` THEREFORE DID NOTHING AT ALL
+      // (the owner, 2026-09-20, on /architecture: "when i click on things like TOGAF, C4 on
+      // leftnavbar, nothing happens"). page.full and page.folder wrap their content in
+      // `flex:1 1 auto; overflow-y:auto`, so html and body are locked to the viewport — measured
+      // in Chromium on the rendered page: documentElement.scrollHeight 800 against a window of
+      // 800, one inner div with scrollHeight 7745 and clientHeight 709. A scroll of the WINDOW is
+      // a no-op on a document that does not scroll, and there is no error to see: the handler
+      // ran, preventDefault() had already killed the browser's own anchor jump, and the click
+      // was silently spent. Every jump link on every page was dead, not only these two.
+      //
+      // `scrollIntoView` asks the ELEMENT to bring itself into view, so the browser scrolls
+      // whichever ancestor actually scrolls, this shell or the window, and it keeps working the
+      // day the shell changes again. The 80px is now `scroll-margin-top` on the target
+      // (Bootstrap.5.CSS) rather than arithmetic here, which is the same clearance expressed
+      // where the target is rather than where the click is.
+      if (scrollTarget) {
+        scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+
+});
+</script>
+
+
+<!-- Per-resource init hook: runs the resource's initjs TV on load.
+     Lives here (shared JS chunk, included by all content templates) so every
+     template gets it uniformly — replaces the old description-in-script
+     coupling that broke on any resource with a non-JS description. -->
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+[[*initjs]]
+});
+</script>
+
+<script>
+// Auto-decorate: give every .code-box a copy button (no per-row markup, one home for all pages).
+document.addEventListener('DOMContentLoaded', function () {
+  // The two marks are the estate icons copy.svg and copied.svg (design/estate-icons.md),
+  // drawn by the estate stylesheet as masks; the button carries two empty spans and no picture of its own.
+  const COPY = '<span class="ic-copy" aria-hidden="true"></span>';
+  const CHECK = '<span class="ic-check" aria-hidden="true"></span>';
+  document.querySelectorAll('.code-box').forEach(function (box) {
+    const code = box.querySelector('code');
+    if (!code) return;
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'copy-btn'; btn.title = 'Copy'; btn.setAttribute('aria-label', 'Copy');
+    btn.innerHTML = COPY + CHECK;
+    btn.addEventListener('click', function () {
+      const text = code.textContent;
+      const ok = function () { btn.classList.add('copied'); setTimeout(function () { btn.classList.remove('copied'); }, 1200); };
+      if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(ok).catch(fb); }
+      else { fb(); }
+      function fb() {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        ta.remove(); ok();
+      }
+    });
+    box.appendChild(btn);
+  });
+});
+</script>
+
+<script>
+// The Feeds page's search: an answer from whois takes tens of seconds, so on submit the form
+// says it is asking and its button cannot be pressed twice.
+document.addEventListener('submit', function (e) {
+  var f = e.target;
+  if (!f.classList || !f.classList.contains('feed-search')) return;
+  var w = f.querySelector('.feed-search-wait'), b = f.querySelector('button[type=submit]');
+  if (w) w.hidden = false;
+  if (b) b.disabled = true;
+});
+</script>
+
+<script>
+// A cell that names a page carries data-content-id and data-content-url (folderContent's Page cell
+// and group band), and the WHOLE cell opens it — kuber's data-kuber-id idea, and like kuber the cell
+// holds the NAME, not a hyperlink (the owner, 2026-10-04: "td content should not be a hyperlink").
+// What an <a> gave for free is kept by hand: Ctrl/Cmd-click or a middle click opens a new tab, and
+// the cell takes focus (tabindex) so Enter opens it. The hover is estate-link's.
+(function () {
+  function cellOf(e) { return e.target.closest && e.target.closest('td[data-content-url]'); }
+  function open(cell, newTab) {
+    var url = cell.getAttribute('data-content-url');
+    if (!url) return;
+    if (newTab) window.open(url, '_blank'); else window.location.href = url;
+  }
+  document.addEventListener('click', function (e) {
+    var cell = cellOf(e);
+    if (cell && e.button === 0) open(cell, e.ctrlKey || e.metaKey);
+  });
+  document.addEventListener('auxclick', function (e) {
+    var cell = cellOf(e);
+    if (cell && e.button === 1) { e.preventDefault(); open(cell, true); }
+  });
+  document.addEventListener('keydown', function (e) {
+    var cell = cellOf(e);
+    if (cell && e.key === 'Enter') open(cell, e.ctrlKey || e.metaKey);
+  });
+})();
+</script>
+
+<script>
+// Files (static resources) have a file-extension URL; pages/directories are extensionless. Open a
+// file link in one reusable named tab ("modx") instead of letting it replace the page you're on.
+// Internal links only — external links (different host) are left untouched.
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('a[href]').forEach(function (a) {
+    if (a.target) return;                          // respect an explicit target
+    if (a.hostname !== location.hostname) return;  // external link — leave it
+    if (/\.[a-z0-9]{2,5}$/i.test(a.pathname)) a.target = 'modx';
+  });
+});
+</script>
+
+<script>
+/* ---------------------------------------------------------------------------
+ * LIBRARY'S TABLE EXTRAS — times in the reader's clock, tooltips, quiet rows.
+ *
+ * SORT, FILTER AND COPY ARE NOT HERE ANY MORE. They are the estate table's shared script,
+ * <CDN>/estate/table/estate-table.js (claude-shared design/estate-table.js, dev's), loaded below and
+ * worn by class: estate-sort, estate-filter, estate-copy, estate-no-sort, data-sort, data-raw. One
+ * script for Library and Kuber means a table sorts and copies the same way in both. What stays here
+ * is Library's own: <time class="tbl-localtime">, Bootstrap tooltips, and quiet-first.
+ * ------------------------------------------------------------------------ */
+var TableDecorator = (function () {
+  'use strict';
+
+  function childTags(parent, tags) {
+    var out = [];
+    if (!parent) return out;
+    var kids = parent.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (tags.indexOf(kids[i].tagName) !== -1) out.push(kids[i]);
+    }
+    return out;
+  }
+
+  // Direct children of tbody only, so a nested table's rows are never touched.
+  function bodyRows(table) {
+    return childTags(table.querySelector('tbody'), ['TR']);
+  }
+
+  // `hidden` does the work with zero CSS; .tbl-hide is the styling hook.
+  function setRowVisible(tr, visible) {
+    tr.classList.toggle('tbl-hide', !visible);
+    if (visible) tr.removeAttribute('hidden');
+    else tr.setAttribute('hidden', '');
+  }
+
+  // ---- timestamps in the reader's own clock ------------------------------
+
+  /*
+   * <time datetime="2026-07-25T02:30:07Z" class="tbl-localtime"> becomes the reader's local time.
+   *
+   * Done here and nowhere else because the browser is the ONLY party that knows what "local"
+   * means. The server would have to guess a timezone, and a guessed timezone is worse than plain
+   * UTC: UTC is obviously not your clock, whereas a wrong local time looks exactly like a right
+   * one. The owner sees Eastern, someone in London sees London, and neither of them is configured.
+   *
+   * The original UTC never leaves: it stays in the datetime attribute, goes into the title so it
+   * is one hover away, and stays in the cell's data-sort so the column still sorts by instant
+   * rather than by whatever string the locale produced. An unparseable value is left exactly as
+   * it was rather than rendered "Invalid Date".
+   */
+  function localizeTimes(scope) {
+    var els = (scope || document).querySelectorAll('time.tbl-localtime[datetime]'), i;
+    var made = [];
+    for (i = 0; i < els.length; i++) {
+      var el = els[i], iso = el.getAttribute('datetime');
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) continue;
+
+      // The CELL shows the clock and nothing else — a column of full ISO strings is unreadable
+      // and the eye only wants the time. Everything dropped from the cell is in the tooltip, so
+      // nothing is lost, only moved.
+      var timeOnly, full;
+      try {
+        // Date and time, 2-digit month and day in the browser's own order — no rule
+        // about how old it is (the owner, 2026-10-02). The clock is in the tooltip.
+        timeOnly = d.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit',
+                                                 hour: '2-digit', minute: '2-digit' });
+        full     = d.toLocaleString(undefined, {
+          weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short'
+        });
+      } catch (e) {
+        timeOnly = d.toLocaleTimeString();
+        full     = d.toLocaleString();
+      }
+      // data-format="date" (a feed's "format": "date", the owner 2026-10-04): the date alone, to save the
+      // column's width; the full reading is in the tooltip below as for every time.
+      if (el.getAttribute('data-format') === 'date') {
+        try { timeOnly = d.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' }); }
+        catch (e) { timeOnly = d.toLocaleDateString(); }
+      }
+      el.textContent = timeOnly;
+
+      // Bootstrap tooltip, HTML content: local reading first, the source UTC underneath — so the
+      // full instant is always one hover away and the cell never has to carry it.
+      el.setAttribute('data-bs-toggle', 'tooltip');
+      el.setAttribute('data-bs-html', 'true');
+      el.setAttribute('data-bs-placement', 'top');
+      el.setAttribute('data-bs-title',
+        '<strong>' + escapeHtml(full) + '</strong><br>' +
+        '<span class="text-body-secondary">' + escapeHtml(iso) + ' UTC</span>');
+      el.removeAttribute('title');           // never let the browser's own tip fight Bootstrap's
+    }
+  }
+
+  /*
+   * Construct every Bootstrap tooltip in scope, whoever marked it up — the localised timestamps
+   * above, and the &tip cells the snippet emits server-side. ONE place does this: two callers
+   * each constructing their own would double-instantiate anything both could see, and Bootstrap
+   * leaves the orphaned instance listening.
+   *
+   * Tooltips are opt-in in Bootstrap 5 and do nothing until constructed. Guarded on `bootstrap`
+   * being present, because a page that loads the CSS but not the JS bundle must still render its
+   * table and its times — the tooltip is the enhancement, never the content.
+   */
+  function initTooltips(scope) {
+    if (typeof bootstrap === 'undefined' || !bootstrap.Tooltip) return;
+    var els = (scope || document).querySelectorAll('[data-bs-toggle="tooltip"]'), i;
+    for (i = 0; i < els.length; i++) {
+      if (!bootstrap.Tooltip.getInstance(els[i])) new bootstrap.Tooltip(els[i]);
+    }
+  }
+
+  /*
+   * A tooltip does not outlive the reader's attention. The owner, 2026-09-20: "if i hover and then
+   * change the window, it should disappear and not hang around." Bootstrap closes a tooltip on
+   * mouseleave, and changing window sends none — the browser does not re-evaluate the pointer
+   * until it next moves — so the bubble stayed painted. When the window loses focus or the tab is
+   * hidden, every open tooltip is hidden; the next real hover opens it again. Bound once.
+   */
+  function hideTooltips() {
+    if (typeof bootstrap === 'undefined' || !bootstrap.Tooltip) return;
+    var els = document.querySelectorAll('[data-bs-toggle="tooltip"]'), i, t;
+    for (i = 0; i < els.length; i++) {
+      t = bootstrap.Tooltip.getInstance(els[i]);
+      if (t) t.hide();
+    }
+  }
+  window.addEventListener('blur', hideTooltips);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') hideTooltips();
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ---- exceptions first --------------------------------------------------
+
+  /*
+   * `quiet-first`: rows carrying `tbl-quiet` start HIDDEN, with one control to show everything.
+   *
+   * For a table read to answer "is anything wrong" — the backup status is the case it was built
+   * for. Twenty-three healthy rows is not an answer to that question; it is twenty-three rows to
+   * read before you have one. Hiding the routine ones puts the answer on the first line.
+   *
+   * Three things it must not do, because each turns a convenience into a lie:
+   *   - it never REMOVES a row. Everything is in the DOM, one click away, and the control always
+   *     says how many are hidden. A view that quietly drops rows teaches you to distrust it.
+   *   - when nothing is left it SAYS SO. An empty table reads as broken software; "Nothing needs
+   *     attention" reads as good news, which is what it is.
+   *   - with JavaScript off, nothing runs and the full table is simply there.
+   */
+  function enableQuiet(table) {
+    var rows = bodyRows(table), quiet = [], i;
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i].classList.contains('tbl-quiet')) quiet.push(rows[i]);
+    }
+    if (!quiet.length || !table.parentNode) return;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'tbl-quiet-bar';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-outline-secondary tbl-quiet-toggle';
+    var note = document.createElement('span');
+    note.className = 'tbl-quiet-note';
+    wrap.appendChild(btn);
+    wrap.appendChild(note);
+    table.parentNode.insertBefore(wrap, table);
+
+    var hidden = true;
+    function render() {
+      for (var k = 0; k < quiet.length; k++) setRowVisible(quiet[k], !hidden);
+      btn.textContent = hidden
+        ? 'Show all ' + rows.length + ' rows'
+        : 'Show exceptions only';
+      btn.setAttribute('aria-pressed', hidden ? 'false' : 'true');
+      // Only meaningful while collapsed: if every row is quiet, the table is empty on purpose.
+      note.textContent = (hidden && quiet.length === rows.length)
+        ? 'Nothing needs attention — all ' + rows.length + ' are routine.'
+        : (hidden ? quiet.length + ' routine rows hidden' : '');
+    }
+    btn.addEventListener('click', function () { hidden = !hidden; render(); });
+    render();
+  }
+
+  // ---- wiring ------------------------------------------------------------
+
+  function decorate(table) {
+    if (table.classList.contains('tbl-on')) return;     // never decorate twice
+    table.classList.add('tbl-on');
+    // Opt-in only: starting a table collapsed is a decision about what the reader is looking for.
+    if (table.classList.contains('quiet-first')) enableQuiet(table);
+  }
+
+  function init(root) {
+    var scope = root || document;
+    var tables = scope.querySelectorAll('table.quiet-first');
+    for (var i = 0; i < tables.length; i++) {
+      // One bad table must never take the rest of the page down with it.
+      try { decorate(tables[i]); } catch (e) { if (window.console) console.error('quiet-first:', e); }
+    }
+    // Times first: it ADDS tooltip attributes, so constructing before it would miss them.
+    try { localizeTimes(scope); } catch (e) { if (window.console) console.error('localtime:', e); }
+    try { initTooltips(scope); } catch (e) { if (window.console) console.error('tooltips:', e); }
+  }
+
+  return { init: init, decorate: decorate };
+})();
+
+document.addEventListener('DOMContentLoaded', function () { TableDecorator.init(); });
+
+/* ---------------------------------------------------------------------------
+ * .balance — a money cell. Type the number however you like; it is displayed
+ * with thousands separators, a fixed number of decimals, and right-aligned.
+ *
+ *     <td class="balance">1234.5</td>      ->   1,234.50
+ *     <td class="balance">-98765</td>      ->  -98,765.00
+ *     <td class="balance">$1,234.50</td>   ->   1,234.50
+ *     <td class="balance"></td>            ->   left alone
+ *
+ * WHY IT EXISTS. The owner has had this in kuber for years — core.js does
+ * reformatNumbers('balance', 2) — and reasonably expected MODx to do the same.
+ * It never did: `balance` was only ever a CSS class here, and the formatting
+ * half lived in the other application. This closes that, so the same markup
+ * means the same thing in both places.
+ *
+ * WHY IT IS A DECORATOR and not something the author writes per cell: same rule
+ * as the .code-box copy button above. The page carries the DATA and a class
+ * naming what it is; how it is presented is decided in one place. A number
+ * typed as 1234.5 stays readable and diffable in the source, which a
+ * pre-formatted "1,234.50" does not — it would have to be re-typed to be
+ * corrected, and it sorts as text.
+ *
+ * .balanceFx is the same, for the foreign-currency columns on the QB pages
+ * (2021, 2025): they called a reformatNumbersV2() that exists nowhere, so those
+ * cells were never formatted (the owner, 2026-09-23).
+ *
+ * &decimals is not a property here because a money column is a money column;
+ * if a page ever needs 0 or 4, add .balance-0 / .balance-4 rather than making
+ * every author choose.
+ *
+ * DELIBERATELY IDEMPOTENT: it records the raw value on the element, so running
+ * twice (or after a table re-render) formats from the original, never from its
+ * own output. Formatting "1,234.50" again would otherwise read as 1.234 in a
+ * locale that groups with dots.
+ * ------------------------------------------------------------------------- */
+(function () {
+  function formatMoney(n, decimals) {
+    var neg = n < 0 ? '-' : '';
+    var fixed = Math.abs(n).toFixed(decimals);
+    var parts = fixed.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return neg + parts.join('.');
+  }
+
+  function formatCell(el, decimals) {
+    var raw = el.getAttribute('data-raw');
+    if (raw === null) {
+      raw = el.textContent;
+      el.setAttribute('data-raw', raw);            // remember the author's value, once
+    }
+    if (raw.trim() === '') { return; }             // an empty cell is empty, not 0.00
+    var n = parseFloat(raw.replace(/[^\d.\-]/g, ''));
+    if (!isFinite(n)) { return; }                  // not a number: leave the author's text alone
+    el.textContent = formatMoney(n, decimals);
+    el.classList.add('text-end', 'estate-num');    // right-aligned, because money is (estate-num in an estate table)
+  }
+
+  function decorate(root) {
+    (root || document).querySelectorAll('.balance, .balance-0, .balance-4, .balanceFx').forEach(function (el) {
+      formatCell(el, el.classList.contains('balance-0') ? 0 : el.classList.contains('balance-4') ? 4 : 2);
+    });
+  }
+
+  // Any class, any number of decimals, with the same guards — what kuber.js's reformatNumbers()
+  // now hands its work to, so the 36 pages whose initjs calls it get the guards too.
+  function formatClass(cls, decimals, root) {
+    (root || document).querySelectorAll('.' + cls).forEach(function (el) { formatCell(el, decimals); });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () { decorate(document); });
+  window.MoneyCells = { decorate: decorate, formatClass: formatClass };   // callable after a re-render
+})();
+</script>
+
+<!-- THE ESTATE TABLE'S BEHAVIOUR: sort, filter and copy, shared with Kuber; dev's, published to the CDN. -->
+<script src="[[++estate_cdn_url]]/estate/table/estate-table.js"></script>

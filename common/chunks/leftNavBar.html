@@ -1,0 +1,49 @@
+<aside class="modx-leftnav">
+    <nav>
+        <div>
+            <button id="showAll" class="btn btn-success me-2 w-100" style="display:none;" title="keyboard: e">Show All (e)</button>
+            <button id="hideAll" class="btn btn-danger w-100" style="display:none;" title="keyboard: e">Hide All (e)</button>
+        </div>
+
+        [[pdoNeighbors?
+            &loop=`1`
+            &limit=`1`
+            &context=`[[*context_key]]`
+            &checkPermissions=`view`
+            &tplWrapper=`@INLINE <div class="d-flex justify-content-between" style="padding:0; margin-left:-10px;">[[+prev]][[+up]][[+next]]</div>`
+            &tplPrev=`@INLINE <a href="[[+link]]" title="[[+menutitle]]"><i class="bi bi-arrow-left-circle"></i></a>`
+            &tplUp=`@INLINE <a href="[[+link]]" class="text-decoration-none"><i class="bi bi-arrow-up-circle text-danger"></i></a>`
+            &tplNext=`@INLINE <a href="[[+link]]" title="[[+menutitle]]"><i class="bi bi-arrow-right-circle"></i></a>`
+        ]]
+
+        <ul class="list-unstyled bg-primary flex-column" style="--bs-bg-opacity: .2;">
+            [[pdoMenu?
+            &startId=`[[*parent]]`
+            &level=`1`
+            &hereClass=`active`
+            &checkPermissions=`list`
+            &tplOuter=`@INLINE [[+wrapper]]`
+            &tpl=`@INLINE
+            <li class="nav-item[[+classes:contains=`first`:then=` first`]]">
+                <a class="px-0 nav-link[[+classes:contains=`active`:then=` active`]]"
+                    href="[[+link]]">[[+menutitle]]</a>
+            </li>
+            `
+            ]]
+        </ul>
+        <ul class="list-unstyled fw-normal small bg-success" style="--bs-bg-opacity: .5;">
+            [[!jumpNav]]
+        </ul>
+        <ul class="list-unstyled fw-normal small bg-warning" style="--bs-bg-opacity: .2;">
+            [[pdoMenu?
+            &startId=`[[*id]]`
+            &level=`1`
+            &checkPermissions=`list`
+            &tplOuter=`@INLINE [[+wrapper]]`
+            &tpl=`@INLINE
+            <li><a class="ps-0 nav-link" href="[[+link]]" [[+attributes]]>[[+menutitle]]</a></li>
+            `
+            ]]
+        </ul>
+    </nav>
+</aside>

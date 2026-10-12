@@ -1,0 +1,47 @@
+<head>
+    <meta charset="[[++modx_charset]]">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="Page based header is disabled for this framework">
+    <meta name="theme-color" content="#563d7c">
+    <base href="[[!++site_url]]">
+    <title>[[!pdoTitle]] / [[++site_name]]</title>
+
+    <!-- The application's veena (the bird before it). SVG is primary: navy #1b3052 is nearly invisible on a dark tab strip,
+         and only the SVG carries the prefers-color-scheme rule that lifts the fill. cdn is served
+         immutable for a year, so the dated path is load-bearing — a better master means a NEW
+         dated directory plus a change here, never an overwrite. -->
+    <link rel="icon" href="[[++estate_cdn_url]]/brand/20261007-veena/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="[[++estate_cdn_url]]/brand/20261007-veena/veena-32.png" sizes="32x32">
+    <link rel="apple-touch-icon" href="[[++estate_cdn_url]]/brand/20261007-veena/apple-touch-icon.png">
+
+    <!-- The left navigation's remembered state, applied BEFORE first paint so a reader who hid it
+         never sees it flash in and slide out. Wide screens only; a phone always starts closed. -->
+    <script>try{if(window.matchMedia('(min-width: 768px)').matches&&localStorage.getItem('modx.leftnav')==='hidden'){document.documentElement.classList.add('leftnav-hidden')}}catch(e){}</script>
+
+    [[$Bootstrap.5.CSS]]
+
+    <!-- THE ESTATE TITLE BAR — one file for every application, unversioned on purpose so a
+         change to the bar reaches Library on its next page load without an element being edited.
+         The address is configuration, never a constant in an element: estate_cdn_url is a system
+         setting, because MODx elements are the same bytes on every ground and so cannot carry a
+         per-ground value. Contract: claude/shared/design/estate-title-bar.md (dev).
+         THE LITERAL AFTER `default=` IS A FALLBACK, not a second source. The settings verb that
+         writes estate_cdn_url is infra's (apply_modx_settings), and this element reaches a ground
+         before that verb runs there; without the fallback the href would resolve relative to the
+         site and 404, and the bar would arrive unstyled. It is the address every estate site
+         already serves from, and the day it moves the SETTING is what moves. -->
+    <link rel="stylesheet" href="[[++estate_cdn_url]]/estate/titlebar/titlebar.css">
+    <!-- The weather slot's one script, loaded only when this ground has a weather page to
+         send the click to — topNavBar renders the slot on the same condition. -->
+    [[++estate_weather_url:notempty=`<script src="[[++estate_cdn_url]]/estate/titlebar/titlebar.js" defer></script>`]]
+    <!-- THE ESTATE TABLE — one table style for Data, Kuber and Library, built the way the
+         title bar is; the address, the fallback and the reasons are the same as above. A table
+         wears it by its class names (estate-table and friends); Library adds no rule of its own
+         that restyles them. Contract: claude/shared/design/estate-table.md (dev). -->
+    <link rel="stylesheet" href="[[++estate_cdn_url]]/estate/table/estate-table.css">
+    <!-- THE ESTATE FORM — one look for every form, the table's twin. A form wears it by its class
+         names (estate-form, estate-filter-row, estate-field, estate-go …). Contract:
+         claude/shared/design/estate-form.md (dev). ?v= = sha256-12 of the published file. -->
+    <link rel="stylesheet" href="[[++estate_cdn_url]]/estate/form/estate-form.css?v=6d34613f992f">
+
+</head>

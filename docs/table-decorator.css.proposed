@@ -1,0 +1,107 @@
+/* =============================================================================
+ * PROPOSED styling for the smart-table decorator (common/chunks/Bootstrap.5.Javascript.html).
+ *
+ * This is a PROPOSAL, not the live sheet. Presentation is the owner's: accept, rework,
+ * or discard. When accepted, the home for it is the CDN source
+ *   static-sites/cdn/_src/custom.scss
+ * (compiled to the site's stylesheet) — the same file that already styles .code-box and
+ * td.gitlink. Nothing here should ever ship as a <style> block in page content.
+ *
+ * The JS emits only these hooks; every rule below hangs off one of them:
+ *   table.tbl-on            a decorated table (added by JS; lets you scope safely)
+ *   th.tbl-sort             a clickable, sortable header
+ *   th.tbl-sort .tbl-ind    the sort-direction arrow (its text is set by JS)
+ *   th.tbl-sorted           the header of the currently-sorted column
+ *   td.tbl-sorted           cells of the currently-sorted column
+ *   tr.tbl-group            a group heading row (single colspan cell)
+ *   tr.tbl-hide / [hidden]  a row filtered out (JS sets both; `hidden` hides it
+ *                           even with zero CSS, so filtering degrades safely)
+ *   div.tbl-filter          the wrapper the JS inserts just above the table
+ *   .tbl-filter-input       the search box (already .form-control form-control-sm)
+ *   .tbl-filter-count       "12 of 340" live match count
+ *
+ * The design intent is "rich, not 1995": a sort affordance that appears on hover,
+ * a crisp active-column tint, a header that stays put while you scroll a long
+ * document, and a filter box that looks native to the site's Bootstrap chrome.
+ * Colours are picked to sit with the existing #712cf9 accent (leftNavBar) and the
+ * #cfe2ff active tint already used for td.gitlink, so tables feel of a piece.
+ * ---------------------------------------------------------------------------- */
+
+/* --- sortable headers ------------------------------------------------------ */
+.tbl-on th.tbl-sort {
+  cursor: pointer;
+  user-select: none;                 /* a double-click must not select the label */
+  position: relative;
+  white-space: nowrap;               /* keep the arrow on the label's line */
+}
+.tbl-on th.tbl-sort:hover { color: #712cf9; }
+.tbl-on th.tbl-sort:focus-visible {  /* keyboard users get a real focus ring */
+  outline: 2px solid #712cf9;
+  outline-offset: -2px;
+}
+.tbl-on th.tbl-sort .tbl-ind {
+  display: inline-block;
+  margin-left: 0.35em;
+  font-size: 0.85em;
+  opacity: 0;                        /* the arrow is quiet until you hover/sort */
+  transition: opacity 0.12s, color 0.12s;
+  vertical-align: baseline;
+}
+.tbl-on th.tbl-sort:hover .tbl-ind,
+.tbl-on th.tbl-sort:focus-visible .tbl-ind { opacity: 0.5; }
+.tbl-on th.tbl-sorted .tbl-ind { opacity: 1; color: #712cf9; }
+
+/* the active column, header + body, gets a faint tint so the eye tracks it */
+.tbl-on th.tbl-sorted { color: #712cf9; }
+.tbl-on tbody td.tbl-sorted { --bs-table-bg-state: #f3eefe; }
+
+/* --- sticky header --------------------------------------------------------- */
+/* Works when the table (or an ancestor) is the scroll container — e.g. wrapped
+ * in Bootstrap's .table-responsive, or a max-height box. position:sticky is a
+ * no-op if nothing scrolls, so this is safe to apply unconditionally. Applied
+ * to smart-table and to the opt-in .sticky-head (which needs no JS at all). */
+.tbl-on.smart-table thead th,
+table.sticky-head thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fff;                  /* opaque, or body rows show through */
+  box-shadow: inset 0 -1px 0 var(--bs-border-color, #dee2e6);
+}
+
+/* --- group heading rows (from tableRenderer &group) ------------------------ */
+/* tableRenderer already puts .table-secondary text-center on these; this just
+ * makes the section label read as a heading, not another data row. */
+.tbl-on tr.tbl-group td {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  position: sticky;                  /* the section label trails under the head */
+  top: 2.4rem;                       /* ~ header height; adjust to taste */
+  z-index: 1;
+}
+
+/* --- filter box ------------------------------------------------------------ */
+.tbl-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  max-width: 22rem;
+}
+.tbl-filter .tbl-filter-input { flex: 1 1 auto; }
+.tbl-filter .tbl-filter-count {
+  font-size: 0.8em;
+  color: var(--bs-secondary-color, #6c757d);
+  white-space: nowrap;
+}
+
+/* filtered-out rows: `hidden` already removes them; this is belt-and-braces so
+ * a stray display rule elsewhere cannot un-hide them. */
+.tbl-on tr.tbl-hide { display: none; }
+
+/* --- dark mode (only if the site adopts Bootstrap's colour modes) ---------- */
+@media (prefers-color-scheme: dark) {
+  [data-bs-theme="dark"] .tbl-on.smart-table thead th,
+  [data-bs-theme="dark"] table.sticky-head thead th { background: #212529; }
+  [data-bs-theme="dark"] .tbl-on tbody td.tbl-sorted { --bs-table-bg-state: #2a2340; }
+}

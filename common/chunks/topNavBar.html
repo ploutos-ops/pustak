@@ -1,0 +1,125 @@
+<!-- THE ESTATE TITLE BAR. The skeleton and the class names are fixed by
+     claude/shared/design/estate-title-bar.md and styled ONLY by the one stylesheet on the estate
+     CDN, loaded in Bootstrap.5.Head from [[++estate_cdn_url]]. Nothing here restyles a slot: an
+     application that renders its own bar from its own stylesheet has left the standard.
+
+     The owner's ruling, 2026-09-19: "Every app wears the same title bar — the site's own logo in the
+     corner, then the app's name, then the tenant, then the environment colour. Library is an app
+     and wears it. ... Trump and MODx are not names. Data and Library are."
+
+     So the app slot reads LIBRARY — the product — and never MODx, which is the framework it runs
+     on. The site (Worldview, Family, Corporate, Claude) is the TENANT and goes in the context
+     slot, which is why the logo and the name no longer compete for one space: his 2026-09-14
+     ruling put the logo alone in the old bar because the name had nowhere else to go, and in this
+     construct it has a slot of its own.
+
+     NOT sticky, and that is rule 7: Bootstrap's sticky-top carries z-index 1020, which opens a
+     stacking context its children cannot escape — kuber lost an afternoon to it and this bar's own
+     left-nav toggle was unreachable under the column on 2026-09-18 for the same reason. -->
+<!-- THE GROUND'S OWN COLOUR, and nothing here knows an environment name.
+     estate_env_color is written by setup/02 from infra's ESTATE_ENV_COLOR — one row per
+     environment, empty for one nobody declared. Empty writes NO property, so the stylesheet
+     falls through to --estate-env-undeclared; a property set to nothing would still beat that
+     fallback and hide exactly the ground this is meant to expose. -->
+<header class="estate-bar" data-env="[[++estate_env]]"[[++estate_env_color:notempty=` style="--estate-env-color: [[++estate_env_color]]"`]]>
+
+	<!-- The logo cell: the page's own white, LEFT of the colour ("it should not sit on top of
+	     logo"). Every site wears the application's veena (the owner, 2026-10-07: "i want veena to be the image on all contexts. the client name is now written next to saraswati") — the site's own name stands beside it — which does not make two
+	     such sites identical any more, because the name beside it is the site's. -->
+	<a class="estate-bar-logo" href="/">
+		<img src="[[++estate_cdn_url]]/brand/20261007-veena/favicon.svg" alt="[[++site_name]]">
+	</a>
+
+	<div class="estate-bar-main">
+
+		<!-- Show or hide the left navigation (the owner, 2026-09-18). d-none until the script finds a
+		     #leftNavCol on the page — the folder and public templates have none. Keyboard: [ -->
+		<button id="leftNavToggle" type="button" class="estate-bar-menu d-none"
+			aria-controls="leftNavCol" aria-expanded="true" aria-label="Show or hide the navigation"
+			title="Show or hide the side navigation (keyboard: [)">
+			<i class="bi bi-layout-sidebar"></i>
+		</button>
+
+		<span class="estate-bar-app">[[++estate_app_name]]</span>
+		<span class="estate-bar-context">[[++site_name]]</span>
+		<span class="estate-bar-env">[[++estate_env:ne=`production`:then=`[[++estate_env:ucase]]`]]</span>
+
+		<div class="estate-bar-spacer"></div>
+
+		<!-- The right-hand cluster is this application's own: search, then the greeting and sign
+		     out, which loginWidget renders with the estate's own classes. -->
+		<div class="estate-bar-actions">
+			<!-- PRINT — kuber's control, as the owner asked for it: the browser's own dialog,
+			     which offers Save as PDF. What leaves the paper is the print block in
+			     Bootstrap.5.CSS; the page's address on the first line is #modxPrintAddress,
+			     stamped by Bootstrap.5.Javascript at the moment of printing. -->
+			<a href="#" onclick="window.print(); return false;" title="Print / Save as PDF" aria-label="Print or save as PDF"><i class="bi bi-printer"></i></a>
+			<!-- THE WEATHER SLOT: one element, filled by the shared script the head loads
+			     from the CDN (estate-title-bar.md §The weather slot). The href is the estate's own
+			     weather page on the CDN — the estate_weather_url setting, which setup/02 derives
+			     from the CDN address. Empty setting, no element: an icon that leads nowhere is the
+			     silence the bar forbids, so the slot is absent rather than dead.
+			     THE CLICK OPENS THE WEATHER INSIDE THIS SHELL (the owner, 2026-09-24: "fit inside your
+			     shell ... and still have a menu to go back home"): Bootstrap's offcanvas toggle
+			     keeps the reader on the page and the panel below mounts the CDN's weather.js. The
+			     href stays the stand-alone page, for a middle-click or a browser without script. -->
+			[[++estate_weather_url:notempty=`<a class="estate-bar-weather" href="[[++estate_weather_url]]" data-bs-toggle="offcanvas" data-bs-target="#estate-weather-panel" aria-controls="estate-weather-panel"></a>`]]
+			<a href="[[~[[++search_page]]]]" title="Search this site" aria-label="Search this site"><i class="bi bi-search"></i></a>
+		</div>
+		[[!loginWidget? &variant=`estate`]]
+	</div>
+</header>
+
+<!-- The site's own sections. They are NOT part of the estate bar — the bar has no slot for an
+     application's navigation, and folding these into the left column would change how every
+     Library page navigates, which is a separate decision. One line, no vertical padding. -->
+<!-- It HUGS the bar (the owner, 2026-10-02: "can it hug the title bar so it look part of it ... with
+     same formatting as title bar color (based on environment)"): the same colour value as the bar,
+     set the same way, starting where the bar's colour starts. Still outside the bar's slots. -->
+<nav class="navbar navbar-expand-md py-0 estate-sections"[[++estate_env_color:notempty=` style="--estate-env-color: [[++estate_env_color]]"`]]>
+	<button class="navbar-toggler my-1" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
+		<span class="navbar-toggler-icon"></span>
+	</button>
+	<div class="collapse navbar-collapse" id="navbarContent">
+		<ul class="navbar-nav bd-navbar-nav me-auto">
+			[[pdoMenu?
+			&parents=`[[++nav_root_id]]`
+			&level=`2`
+			&checkPermissions=`list`
+			&tplParentRow=`@INLINE
+			<li class="[[+classnames]] nav-item dropdown">
+				<a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"
+					aria-expanded="false">
+					[[+menutitle]]
+				</a>
+				<div class="dropdown-menu">
+					[[+wrapper]]
+				</div>
+			</li>`
+
+			&tpl=`@INLINE <a class="dropdown-item" href="[[+link]]"
+				[[+attributes]]>[[+menutitle]]</a>[[+wrapper]]`
+
+			&tplOuter=`@INLINE [[+wrapper]]`
+			]]
+		</ul>
+	</div>
+</nav>
+<!-- The estate weather panel: mounted from the CDN on first open, so a page nobody opens it on
+     fetches nothing. ?v= IS THE FIRST 12 OF weather.js's SHA-256: the CDN caches every answer for a
+     year, a 404 included (his policy), so a changed file must be a new address. No template literals here — a backtick would end this MODx output modifier. -->
+[[++estate_weather_url:notempty=`<div class="offcanvas offcanvas-end" tabindex="-1" id="estate-weather-panel" aria-labelledby="estate-weather-title" style="--bs-offcanvas-width: min(56rem, 100vw)">
+	<div class="offcanvas-header">
+		<h5 class="offcanvas-title" id="estate-weather-title">Weather</h5>
+		<button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+	</div>
+	<div class="offcanvas-body"></div>
+</div>
+<script>
+document.getElementById('estate-weather-panel').addEventListener('show.bs.offcanvas', function () {
+	var body = this.querySelector('.offcanvas-body')
+	import('[[++estate_cdn_url]]/estate/weather/weather.js?v=5f44c667c0f3')
+		.then(function (m) { m.mount(body) })
+		.catch(function (e) { body.textContent = 'No weather: the weather script did not load (' + e + ')' })
+})
+</script>`]]

@@ -1,0 +1,11 @@
+--- a/core/components/pdotools/src/CoreTools.php
++++ b/core/components/pdotools/src/CoreTools.php
+@@ -1065,7 +1065,7 @@
+             if ($object instanceof modAccessibleObject && !$object->checkPolicy($permissions)) {
+                 unset($rows[$key]);
+                 $this->addTime($this->config['class'] . ' #' . $row['id'] . ' was excluded from results, because you do not have enough permissions');
+-                $total--;
++                if ($total !== null) { $total--; }
+             }
+         }
+ 

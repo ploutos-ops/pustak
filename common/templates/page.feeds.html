@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en" class="h-100">
+
+[[$Bootstrap.5.Head]]
+
+<body>
+<!-- THE PAGE IS A FULL-HEIGHT COLUMN: the estate title bar and the site's sections are
+     the column's first children and do not shrink, and EVERYTHING ELSE SCROLLS INSIDE the second.
+     This is why the bar stays in view without `position: sticky` and without a z-index — rule 7 of
+     claude/shared/design/estate-title-bar.md forbids both, because a sticky bar carrying a z-index
+     opens a stacking context its own children cannot escape. The shared stylesheet's
+     `flex-shrink: 0` on .estate-bar is written for exactly this shell. -->
+	<div style="display:flex; height:100vh; flex-direction:column;">
+
+		[[$topNavBar]]
+
+		<div style="flex:1 1 auto; overflow-y:auto; display:flex; flex-direction:column; justify-content:space-between;">
+		<div class="container-fluid">
+
+			<div class="row ">
+
+				<!-- The left navigation slides away and back (the owner, 2026-09-18): the toggle in the top
+				     bar, the state in html.leftnav-hidden (wide screens, remembered) or
+				     html.leftnav-open (phones, over the page). CSS in Bootstrap.5.CSS, JS in
+				     Bootstrap.5.Javascript, the pre-paint class in Bootstrap.5.Head. -->
+				<div id="leftNavCol" class="modx-leftnav-col col-md-1 col-xl-1 position-fixed top-0 mx-0 px-0 vh-100 overflow-auto">
+    				[[$leftNavBar]]
+				</div> <!--col-1 -->
+				<main id="mainCol" class="modx-main col-md-11 ms-sm-auto col-lg-11 px-md-4 ">
+					<div id="modxPrintAddress" class="modx-print-only"></div>
+					<!-- page.feeds = page.full with ONE change (the owner, 2026-10-04): the header is drawn by
+					     feedView, so on ?feed=<name> it names the feed being shown; without one it is the
+					     page's own title. Everything else is page.full's — keep the two in step. -->
+					[[!feedView? &part=`heading`]]
+					[[*content]]
+				</main> <!-- col-11 -->
+			</div> <!-- row -->
+		</div> <!-- container-fluid -->
+
+		[[$Bootstrap.5.Footer]]
+		</div> <!-- the scrolling part of the page -->
+		[[$Bootstrap.5.Javascript]]
+
+	</div> <!-- flex -->
+</body>
+
+</html>

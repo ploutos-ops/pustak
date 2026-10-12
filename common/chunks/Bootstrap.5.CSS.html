@@ -1,0 +1,99 @@
+<link rel="canonical" href="https://getbootstrap.com/docs/4.1/components/tooltips/">
+
+<!-- The site's stylesheet (Bootstrap 5, customised): its path on the CDN is the estate's, the
+     system setting estate.stylesheet, written by setup/02 from the estate file. Give it a ?v= of
+     the file's hash where the CDN caches for long, so a changed sheet is a new address. -->
+<link href="[[++estate_cdn_url]]/[[++estate.stylesheet]]" rel="stylesheet">
+
+<link rel="stylesheet" href="[[++estate_cdn_url]]/bootstrap-icons/1.13.1/font/bootstrap-icons.min.css">
+
+
+<style>
+/* A JUMP TARGET KEEPS ITS OWN CLEARANCE. The jump-link handler used to compute an 80px offset and
+   scroll the WINDOW, which does nothing on these templates — page.full and page.folder put the
+   content in a `flex:1 1 auto; overflow-y:auto` shell, so the document itself never scrolls. The
+   handler now calls scrollIntoView and the clearance lives here, on the target, where it survives
+   the next change to the shell. `.anchor-target` is the class sectionStart carries and sectionHead
+   is given; the id rule catches a hand-written anchor that predates either. */
+.anchor-target, [id].jump-target { scroll-margin-top: 80px }
+/* leftNavBar — self-contained replacement for docs.css .bd-toc (extracted from the leftNavBar chunk) */
+.modx-leftnav{font-size:.875rem}
+/* The INNER nav is no longer sticky. It carried `top:5rem` from the docs.css this was
+   extracted from, which held its first link 80px down the column and clipped it the moment the
+   page scrolled — seen in a headless-Chromium screenshot on 2026-09-19. The COLUMN is what sticks
+   now, so the nav inside it simply fills it. */
+@media (min-width:992px){.modx-leftnav{height:100%;overflow-y:auto}}
+.modx-leftnav nav a{display:block;padding:.125rem 0 .125rem .75rem;color:inherit;text-decoration:none;border-left:.125rem solid transparent}
+.modx-leftnav nav a:hover,.modx-leftnav nav a.active{color:#712cf9;border-left-color:#712cf9}
+.modx-leftnav nav a.active{font-weight:500}
+
+/* The left navigation slides away and back (the owner, 2026-09-18) — the toggle sits in the top bar.
+   Wide screens (md and up): open by default, html.leftnav-hidden slides the column off the left
+   edge and main takes the full width; the choice is remembered in localStorage (modx.leftnav).
+   Phones: closed by default, html.leftnav-open slides it OVER the page as a panel with a shade
+   behind it; nothing is remembered, a phone always starts closed. One transition each way. */
+/* THE COLUMN IS STICKY, NOT FIXED, and the reason is the estate title bar. That bar is
+   deliberately NOT sticky — rule 7 of claude/shared/design/estate-title-bar.md, because a sticky
+   bar with a z-index opens a stacking context its own children cannot escape. A column FIXED at
+   top 0 therefore paints OVER it: the logo and the toggle vanished under the white column, caught
+   in a headless-Chromium screenshot on 2026-09-19, which is the same fault this file's previous
+   comment records from 2026-09-18 with the layers the other way round.
+   Sticky fixes it by construction rather than by out-bidding a z-index: the column FLOWS after the
+   bar, so it cannot overlap what is above it, and it still stays in view while the page scrolls. */
+/* z-index 1 ON WIDE SCREENS, NOT 1010. The column is sticky and flows beside main, so it needs
+   to sit above main's ordinary content during its slide and above nothing else. At 1010 it
+   painted OVER the sections row's dropdown (Bootstrap .dropdown-menu is 1000, and the row is a
+   plain relative nav, so the two meet in the root stacking context): on every page.full page the
+   External menu opened behind the white column — the owner, on /bank, 2026-09-24; /home has no
+   column, which is why it worked there. Phones keep 1030 below, where the column is the panel
+   over the page and is meant to cover it. */
+.modx-leftnav-col{transition:transform .25s ease;z-index:1;background:#fff}
+/* The sections row is a fixed 36px so the column below it has a height it can compute, and so the
+   page's scrolling area is a known size on every site whatever its menu holds. */
+.estate-sections{height:36px}
+/* The strip wears the bar's colour and starts where the bar's colour starts — white under the logo
+   cell — so it reads as the bar's second line (the owner, 2026-10-02). The values are the bar's own
+   variables from titlebar.css; nothing here names an environment. */
+.estate-sections{margin-top:-14px;position:relative;margin-left:var(--estate-bar-logo-w,64px);padding:0 var(--estate-bar-pad,16px);
+  background:var(--estate-env-color,var(--estate-env-undeclared))}
+.estate-sections .nav-link,.estate-sections .navbar-toggler{color:var(--estate-bar-fg,#cbd5e1)}
+.estate-sections .nav-link:hover,.estate-sections .nav-link:focus,.estate-sections .nav-link.show{color:var(--estate-bar-fg-strong,#f1f5f9)}
+@media (min-width:768px){
+  /* As tall as the space between the bars and the footer, not the footer included: 41px taller and
+     the browser pushed the column up at the end of every page (the owner, 2026-10-02). 22px = the
+     36px sections strip less the 14px it tucks under the bar; 56px = the footer. */
+  .modx-leftnav-col{position:sticky!important;top:0;height:calc(100vh - var(--estate-bar-h, 56px) - 22px - 56px)!important;align-self:flex-start}
+}
+.modx-main{transition:margin-left .25s ease,max-width .25s ease,flex-basis .25s ease}
+@media (min-width:768px){
+  /* HIDDEN MEANS OUT OF THE FLOW, not merely translated away. The column became STICKY today, which
+     put it back IN the row's flex line; main then asks for 100% beside a 117px column, the line
+     overflows, and main WRAPS onto the next one — measured at y=799 in a 800px viewport, which is
+     the whole page appearing to vanish the moment the sidebar is hidden (the owner, on /quickbooks).
+     While it is fixed it occupies no line, so 100% fits; the transform still animates it away. */
+  html.leftnav-hidden .modx-leftnav-col{position:fixed!important;transform:translateX(-100%)}
+  html.leftnav-hidden .modx-main{flex:0 0 100%;max-width:100%;margin-left:0!important}
+}
+@media (max-width:767.98px){
+  .modx-leftnav-col{transform:translateX(-100%);width:min(80vw,300px);box-shadow:0 0 1.5rem rgba(0,0,0,.25);padding:.75rem!important;top:calc(var(--estate-bar-h, 56px) + 36px)!important;height:calc(100vh - var(--estate-bar-h, 56px) - 36px)!important;z-index:1030}
+  .modx-leftnav-col .modx-leftnav{position:static;height:auto}
+  html.leftnav-open .modx-leftnav-col{transform:none}
+  html.leftnav-open body::after{content:"";position:fixed;top:calc(var(--estate-bar-h, 56px) + 36px);right:0;bottom:0;left:0;background:rgba(0,0,0,.35);z-index:1029}
+}
+/* ON PAPER: the content and nothing else — the estate bar, the sections row, the left
+   column and the footer stay on screen, main takes the freed width, and the page's address stands
+   on the first line (kuber's rule from Data, the owner 2026-09-21: a printout must say where it came
+   from, and the browser prints the URL only when its own headers-and-footers option is on).
+   The shell is a fixed-height flex column whose second child scrolls (page.full, page.folder);
+   on paper both must be free to grow or the printout is one page cut at the viewport's height. */
+.modx-print-only{display:none}
+@media print{
+  .modx-print-only{display:block!important;font-size:.75rem;word-break:break-all;margin-bottom:.5rem}
+  header.estate-bar,nav.estate-sections,.modx-leftnav-col,.bd-sidebar,footer.footer{display:none!important}
+  body>div[style]{display:block!important;height:auto!important}
+  body>div[style]>div[style]{display:block!important;overflow:visible!important}
+  /* .bd-sidebar is the folder page's own menu column (folderContent), the page.folder twin of
+     the left column; its main is the same shape as .modx-main and takes the same width. */
+  .modx-main,.bd-sidebar+main{width:100%!important;max-width:100%!important;margin:0!important;flex:0 0 100%!important;padding:0!important}
+}
+</style>

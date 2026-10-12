@@ -1,0 +1,128 @@
+/**
+ * ssoRenew — keep a signed-in reader's provider token fresh, on the server, before it expires.
+ * Event: OnWebPageInit.
+ * It runs before any snippet or the bookkeeping-names plugin reads $_SESSION['sso.id_token'].
+ *
+ * WHY. Google's id_token lives an hour. The bookkeeping-names plugin (and the folder search snippet) verify it on every page and
+ * END THE SESSION when it fails — the owner's ruling: "if the validation fails at that time, they
+ * lose access". Nothing renewed it, so a reader was signed out every hour; the owner, 2026-10-05, on
+ * being signed out mid-visit: "should google token be renewed on each page load, preferably in
+ * background". The ruling is untouched: a token that cannot be renewed still ends the session.
+ *
+ * WHAT IT DOES. Only for a reader authenticated in THIS context who holds a renewal key
+ * (sso.refresh_token, kept by GoogleSSOCallback since sign-in asks for offline access), and only
+ * when the id_token has under $renewWithin seconds left — so a page costs a call to the provider
+ * about once an hour, not once a load. The key is traded at the context's own token endpoint with
+ * its own client (SsoConfig, the one place that resolves a context's provider). The new id_token is
+ * believed only after the estate's one verifier (GoogleToken::verify — signature, audience, issuer,
+ * expiry, verified email) passes it AND it names the same person the session was opened for.
+ *
+ * THREE OUTCOMES, each one a different fact:
+ *   renewed            the session carries the new token; nothing is said (INFO).
+ *   refused            the provider said the key is no good (400/401: revoked, expired, other
+ *                      client), or the new token is not this reader's — the session ENDS, as that ruling says.
+ *   unreachable        the provider did not answer — logged, the page goes on with the token it
+ *                      has; the bookkeeping-names plugin decides on that token exactly as before.
+ */
+
+$renewWithin = 300;          // seconds before expiry at which the token is renewed
+
+$ctxKey = $modx->context ? (string) $modx->context->get('key') : '';
+if ($ctxKey === '' || $ctxKey === 'mgr' || !$modx->user || !$modx->user->isAuthenticated($ctxKey)) {
+    return;
+}
+$refresh = (string) ($_SESSION['sso.refresh_token'] ?? '');
+$exp     = (int) ($_SESSION['sso.id_token_exp'] ?? 0);
+$email   = (string) ($_SESSION['sso.verified_email'] ?? '');
+if ($refresh === '' || $email === '' || $exp - time() > $renewWithin) {
+    return;                       // nothing to renew with, or nothing to renew yet
+}
+
+require_once rtrim(MODX_CORE_PATH, '/') . '/components/pustak/lib/SsoConfig.php';
+$sso = SsoConfig::forContext($modx);
+if ($sso->fault !== '' || $sso->tokenEndpoint === '' || $sso->clientId === '') {
+    $modx->log(modX::LOG_LEVEL_ERROR, "ssoRenew: cannot renew $email's token in context $ctxKey — "
+        . ($sso->fault !== '' ? $sso->fault : 'no token endpoint or client id for this context'));
+    return;
+}
+
+$end = function (string $why) use ($modx, $ctxKey, $email) {
+    $modx->log(modX::LOG_LEVEL_ERROR, "ssoRenew: $email's token could not be renewed ($why) — "
+        . 'ending the MODx session; they sign in again.');
+    $modx->user->removeSessionContext($ctxKey);
+    unset($_SESSION['sso.id_token'], $_SESSION['sso.id_token_exp'], $_SESSION['sso.verified_email'],
+          $_SESSION['sso.refresh_token']);
+};
+
+$ch = curl_init($sso->tokenEndpoint);
+curl_setopt_array($ch, [
+    CURLOPT_POST           => true,
+    CURLOPT_POSTFIELDS     => http_build_query([
+        'grant_type'    => 'refresh_token',
+        'refresh_token' => $refresh,
+        'client_id'     => $sso->clientId,
+        'client_secret' => $sso->clientSecret,
+    ]),
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CONNECTTIMEOUT => 3,
+    CURLOPT_TIMEOUT        => 6,
+    CURLOPT_FOLLOWLOCATION => false,
+    CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+]);
+$body = curl_exec($ch);
+$http = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+$cerr = curl_error($ch);
+curl_close($ch);
+
+if ($body === false || $http === 0 || $http >= 500) {
+    $modx->log(modX::LOG_LEVEL_ERROR, "ssoRenew: $sso->tokenEndpoint did not answer for $email ("
+        . ($body === false ? "curl: $cerr" : "HTTP $http") . ') — the page goes on with the current token');
+    return;
+}
+$tok = json_decode((string) $body, true);
+if ($http !== 200 || !is_array($tok) || empty($tok['id_token'])) {
+    $err = is_array($tok) ? (string) ($tok['error'] ?? $tok['detail'] ?? '') : '';
+    $end("the provider answered HTTP $http" . ($err !== '' ? " $err" : '') . ' with no new id_token');
+    return;
+}
+
+require_once rtrim(MODX_CORE_PATH, '/') . '/components/pustak/lib/GoogleToken.php';
+$why = null;
+if ($sso->provider === 'oidc') {
+    $jwksUri = $sso->jwksUri;
+    $jwksSource = $jwksUri === '' ? null : function () use ($jwksUri) {
+        $c = curl_init($jwksUri);
+        curl_setopt_array($c, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 8,
+                               CURLOPT_HTTPHEADER => ['Accept: application/json']]);
+        $b  = curl_exec($c);
+        $ok = curl_getinfo($c, CURLINFO_RESPONSE_CODE) === 200;
+        curl_close($c);
+        $j = ($ok && is_string($b)) ? json_decode($b, true) : null;
+        return is_array($j) ? $j : null;
+    };
+    if ($jwksSource === null) {
+        $end('the oidc provider has no keys address, so the new token cannot be checked');
+        return;
+    }
+    $got = \Kuber\Core\GoogleToken::verify((string) $tok['id_token'], [$sso->clientId], $why, $jwksSource, $sso->issuers);
+} else {
+    $got = \Kuber\Core\GoogleToken::verify((string) $tok['id_token'], [$sso->clientId], $why);
+}
+if ($got === null) {
+    $end('the new id_token did not verify: ' . (string) $why);
+    return;
+}
+if (strcasecmp($got, $email) !== 0) {
+    $end("the new id_token names $got, not the reader this session was opened for");
+    return;
+}
+
+$seg = strtr(explode('.', (string) $tok['id_token'])[1] ?? '', '-_', '+/');
+$payload = json_decode((string) base64_decode($seg . str_repeat('=', (4 - strlen($seg) % 4) % 4), true), true);
+$_SESSION['sso.id_token']     = (string) $tok['id_token'];
+$_SESSION['sso.id_token_exp'] = (int) ($payload['exp'] ?? 0);
+if (!empty($tok['refresh_token'])) {
+    $_SESSION['sso.refresh_token'] = (string) $tok['refresh_token'];   // a provider may rotate it
+}
+$modx->log(modX::LOG_LEVEL_INFO, "ssoRenew: renewed $email's token in $ctxKey until "
+    . gmdate('H:i:s', (int) ($payload['exp'] ?? 0)) . 'Z');

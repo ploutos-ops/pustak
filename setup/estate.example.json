@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "THE ESTATE DECLARATION — copy this, fill it in, keep it OUT of this repository.",
+    "Point setup/* at it with MODX_ESTATE=/path/to/your-estate.json.",
+    "With no MODX_ESTATE set, the software installs a generic empty estate (setup/estate.py _DEFAULT).",
+    "Every value below is fictional and exists to show the shape."
+  ],
+
+  "web_context": {
+    "name": "Web",
+    "description": "MODX's own context — always exists; setup/01 only relabels it",
+    "rank": 1,
+    "site_name": "Example"
+  },
+
+  "_contexts": "protected: true means setup/04 access-controls this context's pages and files. A protected context MUST also name `home` — the ALIAS of the page a signed-in member lands on (setup/03 creates one called `home` in every context). Without it the context refuses anonymous callers correctly and then has nowhere to send a member, which nothing reports. A public context needs no home.",
+  "contexts": {
+    "public":  { "name": "Public",  "description": "Pages anyone may read",
+                 "rank": 2, "site_name": "Example",         "protected": false },
+    "members": { "name": "Members", "description": "Pages requiring a signed-in member",
+                 "rank": 3, "site_name": "Example Members", "protected": true,
+                 "home": "home" }
+  },
+
+  "admin_username": "cmsadmin",
+
+  "_users": "(username, fullname, email, sso_only). EMAIL is what Google SSO matches on, so for an SSO user it must equal their Google account exactly. Group membership is NOT set here — setup/04 owns it, from groups below.",
+  "users": [
+    ["someone", "Some One", "someone@example.com", true]
+  ],
+
+  "_groups": "group name -> [contexts it may enter, users it starts with]",
+  "groups": {
+    "allContextMember": [["members"], ["cmsadmin"]],
+    "membersMember":    [["members"], ["someone"]]
+  },
+
+
+  "_domains": "context -> public host. 'contexts' may list MORE than 'contexts' above: a context added later by setup/11-add-context still needs a hostname. 'bench_zone' is the bench zone; each context gets <context>.<bench_zone>. Omit bench_zone if you have no bench. 'bench_ports' gives each context a port for a `php -S` bench (setup/bench-server.php, profile 'local'); omit it if you serve the bench through a web server. 'bench_scheme' is http or https and defaults to http — set it to https when the bench sits behind a TLS edge, or MODx generates absolute links on the wrong scheme while the edge quietly redirects them back.",
+  "domains": {
+    "contexts": ["public", "members"],
+    "prod": {
+      "public":  ["www.example.com",     "https"],
+      "members": ["members.example.com", "https"]
+    },
+    "bench_zone": "modx.example.internal",
+    "bench_scheme": "http",
+    "bench_ports": { "public": 8401, "members": 8402 },
+    "local_scheme": "http"
+  }
+}

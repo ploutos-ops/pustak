@@ -1,0 +1,46 @@
+<div class="row ">
+	<!-- The same column as page.full's, so the bar's show/hide button finds it (the owner, 2026-10-02). -->
+	<div id="leftNavCol" class="modx-leftnav-col col-md-1 col-xl-1 position-fixed top-0 mx-0 px-0 vh-100 overflow-auto">
+		[[$leftNavBar]]
+	</div> <!--col-1 -->
+
+	<main id="mainCol" class="modx-main col-md-11 ms-sm-auto col-lg-11 px-md-4 ">
+		[[$pageTitle]]
+
+		<div class="row">
+				<div class="col-12 col-md-12">
+					[[*pagecontent]] <!-- optional Template variable -->
+				</div><!-- col-12 -->
+			</div> <!-- row -->
+
+			<!-- A question about this folder's context's pages, answered by the estate search as the
+			     reader (the owner, 2026-10-04). No box on a ground with no modxsearch.ask_url. -->
+			<div class="row">
+				<div class="col-12 col-md-12">
+					[[!folderSearch]]
+				</div>
+			</div>
+
+			<div class="row">
+				<div class="col-12 col-md-12">
+					<div class="estate-table-box estate-fit"><div class="estate-table-scroll"><table class="estate-table estate-fit">
+						<thead><tr><th>#</th><th>Id</th><th>Page</th><th>Title</th><th>Summary</th></tr></thead>
+						<tbody>
+						<!-- The folder's own pages first, then each page that has pages under it as a band with
+						     those pages below it. One pdoMenu call put a childless page that came after a group
+						     under that group's band, numbered as if it were one of its pages (957 Support:
+						     Technology and Liquidation read as QuickBooks pages), 2026-10-04. "Has pages" is
+						     what pdoMenu counted: published, not deleted, shown in menus. -->
+						[[!pdoResources? &parents=`[[*id]]` &depth=`0` &limit=`0` &sortby=`{"menuindex":"ASC","id":"ASC"}` &showHidden=`0` &checkPermissions=`list`
+						&leftJoin=`{"Kid":{"class":"MODX\\Revolution\\modResource","on":"Kid.parent = modResource.id AND Kid.published = 1 AND Kid.deleted = 0 AND Kid.hidemenu = 0"}}` &select=`{"modResource":"*"}` &groupby=`modResource.id` &having=`COUNT(Kid.id) = 0`
+						&tpl=`folderContentRow`]]
+						[[!pdoResources? &parents=`[[*id]]` &depth=`0` &limit=`0` &sortby=`{"menuindex":"ASC","id":"ASC"}` &showHidden=`0` &checkPermissions=`list`
+						&leftJoin=`{"Kid":{"class":"MODX\\Revolution\\modResource","on":"Kid.parent = modResource.id AND Kid.published = 1 AND Kid.deleted = 0 AND Kid.hidemenu = 0"}}` &select=`{"modResource":"*"}` &groupby=`modResource.id` &having=`COUNT(Kid.id) > 0`
+						&tpl=`folderContentGroup`]]
+						</tbody>
+					</table></div></div>
+				</div><!-- col-12 -->
+			</div> <!-- row -->
+
+	</main> <!-- col-11 -->
+</div> <!-- row -->

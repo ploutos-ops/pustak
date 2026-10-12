@@ -1,0 +1,222 @@
+/**
+ * deliverStorageFile — plugin form of the object-storage download gate.
+ * Event: OnWebPagePrerender.
+ *
+ * WHAT THIS IS. A protected file is a NATIVE MODX **Static Resource** whose bytes live in the object
+ * store instead of on disk. It carries its REAL content type in the native `content_type` field (e.g.
+ * PDF), and its native `content` field holds the sha1 of its bytes — the ONE and only copy, no TV. A
+ * real static resource's content is a file path (slashes/dots); a bare 40-hex sha1 can't be mistaken
+ * for one, so the content's shape is also the "storage-backed" marker. On render, MODX core has already
+ * enforced the same RBAC as any page (no physical file under the webroot => no nginx bypass => every
+ * fetch goes through MODX). This plugin then streams the bytes from the Storage service, using the
+ * resource's OWN content type for mime/extension/disposition/filename — nothing duplicated, nothing
+ * typed into a filename. If the resource is not storage-backed (no storage_sha1), the plugin does
+ * nothing and normal rendering continues.
+ *
+ * ─── DESIGN DECISION — why a plugin, NOT a custom Resource Class (DO NOT RE-LITIGATE) ──────────
+ * Decided 2026-07-17 (the owner + Claude). The "purest" design is a custom Resource Class (subclass of
+ * modStaticResource registered as an extension package). We deliberately did NOT take it:
+ *   1. MODX 3 custom resource classes are documented-UNRELIABLE — open core bug modxcms/revolution#14759.
+ *   2. The official custom-resource docs still show 2.x-flavoured snippets (stale for 3.x).
+ *   3. Extras extending modResource spam the deprecation/error log and ride MODX's least-stable seam.
+ * Durability over cleverness: a one-time purity win is not worth a permanent bet on MODX's flakiest
+ * mechanism. If tempted to "just make it a real resource type," READ #14759 FIRST.
+ * This plugin path keeps the NATIVE Static Resource type AND the native content_type field (so no
+ * shadow content-type TV), on stable core mechanisms (a plugin + a native event). It supersedes the
+ * earlier document+snippet form (common/snippets/deliverFile), whose only wart was a shadow
+ * `storage_content_type` TV forced by the snippet needing a non-binary content type.
+ *
+ * ARCHITECTURAL HONESTY (why not just override process()?). Core's OWN diversion is per-type:
+ * core reads class_key, instantiates the class, and calls that class's process() — modStaticResource
+ * streams a file, modDocument renders a page. The *architecturally correct* home for "stream from
+ * storage" is therefore a custom resource type's process(), NOT a global event. This plugin fires on
+ * OnWebPagePrerender, which runs for EVERY render, so it front-runs core's per-type dispatch and
+ * re-checks "is this one mine?" instead of BEING a type. We accept that on purpose: reaching the
+ * correct seam (a type's process()) REQUIRES registering a custom resource class — the exact
+ * mechanism MODX 3 made unreliable (#14759 above). So the choice is: the RIGHT seam on a FLAKY
+ * mechanism, or the STABLE mechanism front-running the dispatch. We chose stability. If a future MODX
+ * makes custom resource classes reliable again, the pure move is to lift this logic into a
+ * modStorageResource::process() and drop the plugin. (To keep the global event cheap, the guard bails
+ * on non-static-resources first, then on any whose content isn't a bare sha1 — before any real work.)
+ *
+ * ─── COMPATIBILITY WATCH (check on every MODX / xPDO upgrade, and periodically) ───────────────
+ *   MODX core we lean on:
+ *     - the OnWebPagePrerender event fires (modResponse::outputContent) BEFORE core streams the
+ *       static resource — that ordering is what lets us intercept and redirect the byte source.
+ *     - modResource::checkPolicy('view')/get('content'/'alias'/'pagetitle'/'content_dispo')
+ *     - modStaticResource (the instanceof scope — the type that owns the disk read we replace)
+ *     - modContentType::getExtension() + fields mime_type/binary (the central mime/ext registry)
+ *   xPDO (SEPARATE versioned project — its own changelog): getObject()/getOne()/xPDOObject::get()
+ *   Storage contract (infra): GET /v1/files/by-sha1/{sha1}[/download]
+ *   WHERE THE PLATFORM WARNS YOU after a core upgrade:
+ *     1. Manage -> Reports -> Error Log (deprecation tab): MODX logs deprecated-API calls at runtime.
+ *     2. core/docs/changelog.txt on the target branch (github modxcms/revolution) + github modxcms/xpdo.
+ *     3. Docs "Upgrading from X to Y" breaking-changes page.
+ *
+ * Config (system settings, namespace `storage`):
+ *   storage.base_url    (default: the storage service's internal-zone address) | storage.environment
+ *   storage.modx_token  — the RETIRING bearer path; the door authenticates by client
+ *                         certificate, whose directory comes from core/config/application.php
+ */
+
+$resource = $modx->resource ?? null;
+if (!$resource) {
+    return;
+}
+
+// Scope to STATIC RESOURCES only. The blob-read is a Static Resource concern — core delegates it to
+// modStaticResource::getContent (open/read/return); Documents produce bytes a different way and are
+// none of our business. Every non-static render bails here on a cheap in-memory instanceof, BEFORE any
+// TV/DB lookup, so this global event stays negligible site-wide. (This is the "static-resource-only"
+// scoping that a custom resource-class subclass would get for free by living inside modStaticResource.)
+if (!($resource instanceof \MODX\Revolution\modStaticResource)) {
+    return;
+}
+
+// Storage-backed? For a Static Resource, `content` is the native byte-reference (normally a file
+// path). Here it holds the ONE copy of the sha1 — a bare 40-hex string, which no real file path ever
+// is (paths carry slashes/dots/extensions). That shape IS the marker: sha1-shaped content => this is
+// a storage file, deliver it; anything else (a real path) => not ours, render normally. ONE field,
+// ONE place, no shadow TV, no extra attribute.
+$sha1 = strtolower(trim((string) $resource->get('content')));
+if (!preg_match('/^[0-9a-f]{40}$/', $sha1)) {
+    return;
+}
+
+$log = function ($m) use ($modx) { $modx->log(modX::LOG_LEVEL_ERROR, '[deliverStorageFile] ' . $m); };
+
+// Defense-in-depth: core already enforced 'view' before render; re-check so a mis-grouped file cannot
+// leak. If denied, do nothing here and let core's own unauthorized handling stand.
+if (!$resource->checkPolicy('view')) {
+    return;
+}
+
+// The file's type — the resource's NATIVE content_type field (no duplication). mime + extension both
+// come from that one central modContentType row (change it there once, every file follows).
+$mime = 'application/octet-stream';
+$ext  = '';
+if ($ct = $resource->getOne('ContentType')) {
+    $mime = (string) $ct->get('mime_type') ?: $mime;
+    $ext  = (string) $ct->getExtension();
+}
+
+// Download filename — the resource's own alias/pagetitle (MODX fields) + the central extension.
+$fnBase = (string) ($resource->get('alias') ?: $resource->cleanAlias((string) $resource->get('pagetitle')) ?: 'download');
+$fnBase = (string) pathinfo($fnBase, PATHINFO_FILENAME);
+$fname  = $fnBase . $ext;
+
+// Disposition — the resource's content_dispo field (a MODX field).
+$disp = ((int) $resource->get('content_dispo') === 1) ? 'attachment' : 'inline';
+
+// --- storage config + resolve the blob by content sha1 within the modx scope ------------------
+// No default: the door's address is this ground's setting (rendered per installation), never a
+// name compiled in here. Unset fails closed below, and says so.
+$base  = rtrim(trim((string) $modx->getOption('storage.base_url')), '/');
+
+// THE DOOR CANNOT AUTHENTICATE US OVER PLAIN HTTP, AND THAT IS WHY EVERY PDF IN THIS ESTATE WAS
+// BLANK. `storage.base_url` on production read a plain-http internal-zone address, and a client
+// certificate does not exist without TLS: nginx verifies nothing, sets no `X-Client-Identity`, the
+// storage service falls through to its legacy bearer branch, and answers
+// "this door takes a client certificate from the estate CA, not a bearer token" — 401. Measured
+// 2026-08-18 with one identity and one blob: http 401, https 200.
+//
+// So the scheme is not a preference here, it is the difference between authenticating and not.
+// UPGRADED RATHER THAN REFUSED, deliberately: refusing would be honest and would leave every file
+// in the estate unreadable until a settings row is edited on two grounds. Upgrading serves the
+// file AND writes the defect to the log every time, so it cannot sit unnoticed the way the plain
+// value did — a fix that hides its own cause is how this took five sessions to find.
+// REFUSED, NOT REPAIRED — and this is a deliberate change from the first fix, which upgraded the
+// scheme in flight. That version was right for one afternoon and wrong as a permanent shape.
+//
+// The upgrade existed because MODx could not write its error log on either ground, so a refusal
+// would have been a blank page with no way to learn why — which is precisely how this bug survived
+// five sessions. With the log readable that argument is gone, and what is left is an
+// application quietly correcting a wrong configuration value. That is how the NEXT instance hides:
+// the pages keep working, nobody reads the warning, and the estate carries a setting nobody knows
+// is wrong until something else depends on it.
+//
+// So it fails closed and says exactly why. Both grounds read https as of 2026-08-18, verified
+// through the actuator's own settings report, so this refuses nothing that works today.
+if ($base === '') {
+    $log("REFUSING: storage.base_url is not set on this ground, so there is no storage door to ask. "
+       . "No request was made. Set it (an https address) in this installation's environment.");
+    return;
+}
+if (stripos($base, 'https://') !== 0) {
+    $log("REFUSING: storage.base_url is '$base'. The storage door authenticates by CLIENT "
+       . "CERTIFICATE, and a certificate cannot be presented without TLS — over plain http nginx "
+       . "verifies nothing, sets no X-Client-Identity, and the door answers 401 as though we had "
+       . "sent a bearer. This value can never serve a file. No request was made. Set "
+       . "storage.base_url to https on this ground.");
+    return;
+}
+$env   = (string) ($modx->getOption('storage.environment') ?: 'production');
+
+// READS DO NOT NAME AN ENVIRONMENT, and that is not a relaxation — it is the correct filter.
+// `environment` on a by-sha1 read filters by HOLD, not by file: a blob whose only hold is
+// (modx, production) answers 404 to any request naming `staging`, while the bytes sit right
+// there. Every ground whose `storage.environment` is not `production` therefore served a 404
+// for every PDF in the estate, and the failure looked like a missing file rather than a scoped
+// query. Measured 2026-08-17 against one real blob:
+//     by-sha1/7781b4de…                                 200
+//     by-sha1/7781b4de…?system_id=modx                   200
+//     by-sha1/7781b4de…?system_id=modx&environment=staging  404 Not found
+// `system_id` stays: it keeps the read inside modx's own files, which is a real fence. An
+// environment belongs on a WRITE, where a hold is pinned to the ground that made it; this
+// plugin only ever reads. `$env` survives for the log line, which is how a ground says which
+// one it is when a lookup does fail.
+$scope = "?system_id=modx";
+
+// --- WHO THIS CALLER IS -------------------------------------------------------------------------
+// The storage door authenticates the caller by CLIENT CERTIFICATE now. A bearer token is a secret
+// that travels — it sits in a system setting, a restore copies it, and anything holding a copy is
+// modx as far as the door is concerned. A certificate cannot be copied out of the ground it was
+// placed on, and the identity it asserts is `modx@<environment>`: reads span production plus our
+// own, writes pin to our own pair.
+//
+// WHERE THE KEY IS is a per-GROUND fact, so it is read from `core/config/application.php` — the
+// file infra renders — and NOT from a system setting. Application.php's own docblock has the
+// reason and it is not theoretical: `restore_modx_dev` loads production's dump whole, which is
+// how production's kuber.jwt_private_key once reached a dev bench. A settings row naming
+// the identity directory would travel the same way.
+//
+// THE FILES ARE READ PER REQUEST, NEVER CACHED. infra renews the certificate on the ground every
+// 8 hours and replaces the files in place (2026-08-13), so only the PATH is remembered here;
+// curl opens the file itself on each call. Caching the bytes would work for eight hours and then
+// fail in a way nobody would connect to this line.
+require_once rtrim(MODX_CORE_PATH, '/') . '/components/pustak/lib/Application.php';
+require_once rtrim(MODX_CORE_PATH, '/') . '/components/pustak/lib/StorageIdentity.php';
+[$idPath, $ident, $idNote] = \Pustak\Modx\StorageIdentity::curlOptions(
+    \Pustak\Modx\Application::config('estate_identity_dir'),
+    (string) $modx->getOption('storage.modx_token')
+);
+if ($idNote !== null) { $log($idNote); }
+if ($idPath === \Pustak\Modx\StorageIdentity::NONE) { return; }
+
+// Existence check first, so a 404 never streams an error body to the browser.
+$ch = curl_init("$base/v1/files/by-sha1/" . $sha1 . $scope);
+curl_setopt_array($ch, $ident + [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
+curl_exec($ch);
+$mhttp = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+curl_close($ch);
+if ($mhttp !== 200) { $log("sha1 $sha1 not resolvable in modx/$env (http=$mhttp)"); return; }
+
+// --- stream the bytes straight through, then stop MODX ----------------------------------------
+while (ob_get_level() > 0) { ob_end_clean(); }
+header('Content-Type: ' . $mime);
+header('Content-Disposition: ' . $disp . '; filename="' . str_replace('"', '', $fname) . '"');
+header('Cache-Control: private, no-store, max-age=0');
+header('X-Content-Type-Options: nosniff');
+
+$ch = curl_init("$base/v1/files/by-sha1/" . $sha1 . "/download" . $scope);
+curl_setopt_array($ch, $ident + [
+    CURLOPT_TIMEOUT       => 300,
+    CURLOPT_WRITEFUNCTION => function ($c, $data) { echo $data; return strlen($data); },
+]);
+$ok    = curl_exec($ch);
+$dhttp = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+curl_close($ch);
+if ($ok === false || $dhttp !== 200) { $log("download stream failed (sha1=$sha1, http=$dhttp)"); }
+
+@session_write_close();
+exit;

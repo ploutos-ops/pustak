@@ -1,0 +1,84 @@
+{
+  "$why": "The manifest the published enhancement carries. The code reads service.json for the application's display name, its machine door, the paths and store clients of the maintenance code, and the MODx version the addition was last reviewed against. Edit display_name for your installation.",
+  "name": "pustak",
+  "identity": {
+    "display_name": "My Site",
+    "routes": [
+      {
+        "path": "/actuator/info",
+        "methods": [
+          "GET"
+        ],
+        "door": "identity:client certificate — the web server sets X-Client-Identity from a verified chain"
+      }
+    ],
+    "layer": [
+      "setup/**",
+      "changes/**",
+      "tests/**",
+      "export.py",
+      "import.py",
+      "doors.py"
+    ],
+    "store_clients": [
+      "module:pymysql",
+      "module:mysql.connector",
+      "binary:mysql",
+      "binary:mysqldump",
+      "handle:db_config"
+    ],
+    "store_key": [
+      "MODX_DB_PASS"
+    ]
+  },
+  "requires": [
+    {
+      "canonical": "app:MODX_DB",
+      "kind": "db-user",
+      "key": [
+        "MODX_DB_HOST",
+        "MODX_DB_USER",
+        "MODX_DB_PASS",
+        "MODX_DB_NAME"
+      ],
+      "required_by": [
+        "tooling"
+      ],
+      "validate": "db-connect",
+      "description": "Read by the setup/ scripts and the tests on the machine they run from. The web process does not read these: MODx's own core/config/config.inc.php holds its connection."
+    },
+    {
+      "canonical": "value:modx/db_socket",
+      "kind": "value",
+      "key": "MODX_DB_SOCKET",
+      "required_by": [
+        "tooling"
+      ],
+      "validate": "optional",
+      "description": "The unix socket, when the database authenticates the OS user and there is no password."
+    }
+  ],
+  "ships": [
+    {
+      "component": "modx-cms",
+      "version": "3.2.4-pl",
+      "source_url": "https://modx.com/download/direct/modx-3.2.4-pl.zip"
+    },
+    {
+      "component": "pdoTools",
+      "version": "3.0.3-pl2",
+      "source_url": "https://modx.com/extras/package/pdotools"
+    },
+    {
+      "component": "SimpleSearch",
+      "version": "3.1.0-pl",
+      "source_url": "https://modx.com/extras/package/simplesearch"
+    }
+  ],
+  "addition": {
+    "reviewed_against": {
+      "component": "modx-cms",
+      "version": "3.2.4-pl"
+    }
+  }
+}

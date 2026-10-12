@@ -1,0 +1,193 @@
+/**
+ * protectOnSave — a resource is protected the moment it is saved, not the next time a job runs.
+ * Events: OnDocFormSave, OnResourceUndelete, OnResourceDuplicate.
+ *
+ * WHY THIS EXISTS. `setup/04-access-control.py` is what puts a document into `allContextProtected`,
+ * and it runs at DEPLOY time. A page created or undeleted in the manager was therefore public from
+ * the moment it was published until some job ran. On 2026-07-29 a fund balance sheet written
+ * that afternoon returned 200 to an anonymous request on production, and so did a page that had just
+ * been undeleted. Infra then made `deploy_modx_documents` converge access control and added the verb
+ * `wm run converge_modx_access` — which narrows the window to "until the next content deploy of
+ * anything" and cannot close it, because **a manager save triggers no job at all**. This plugin is
+ * what takes that window to zero, and the save is the only moment at which it can be done.
+ *
+ * ─── ONE DECLARATION, AND THIS FILE IS NOT IT ────────────────────────────────────────────────
+ * The rule lives in `setup/access_model.py`. This plugin restates NOTHING: `04` renders the model
+ * into the `access.model` system setting (JSON, group ids resolved) on every run, and this code
+ * reads that. Two copies of an access rule is how it happened before — a written model that was false —
+ * so if you are about to hardcode a group name, a context list or the string `support` here, don't.
+ * `setup/verify-file-protection.py` asserts the setting still matches the Python declaration, so
+ * drift is a red on the 6-hourly monitor rather than a surprise.
+ *
+ * WHAT IT DOES, per saved resource, and it is the same rule 04 applies to all of them at once:
+ *   modDocument      + protect_pages -> member of `allContextProtected`, UNLESS it is the context's
+ *                                       `support` container or a child of it, or its `uri` is one
+ *                                       of the declared machine doors (a page whose
+ *                                       own code is the door; the list is `machine_doors` in the
+ *                                       declaration, owned by service.json)
+ *   modStaticResource+ protect_files -> member of `<context>ProtectedFiles`
+ *   anything else, or a context 04 does not manage -> untouched
+ * Both directions: a resource that moves INTO the support subtree has its page membership removed,
+ * because the mirror of "protect what is not exempt" is "do not leave protection on what is".
+ *
+ * ─── THE TWO FAILURE DIRECTIONS ARE NOT SYMMETRIC ────────────────────────────────────────────
+ * Protecting too little publishes a document. Protecting the WRONG one locks the door from the
+ * inside: `support` holds sso-login and unauthorized, and protecting the sign-in page sends an
+ * anonymous request round 401 -> unauthorized(sso-login) -> 401 until PHP dies at its memory limit
+ * and the server answers 500. That happened on 2026-07-28. So:
+ *   - the support subtree is identified MECHANICALLY (alias, top level, per context), never by a
+ *     list, exactly as 04 does it — a page added under support later is exempt automatically;
+ *   - if the declaration is missing, unparseable, or the context's `support` container cannot be
+ *     resolved, this plugin DOES NOTHING and says so in the error log. Doing nothing leaves the
+ *     status quo, which the 6-hourly file-protection monitor already catches. Guessing does not.
+ * It never refuses a save. The owner writing a page must never be blocked by access plumbing.
+ *
+ * ─── COMPATIBILITY WATCH (check on every MODX upgrade) ───────────────────────────────────────
+ *   Events and their parameters, verified against 3.2.3 core:
+ *     OnDocFormSave        Processors/Model/{Create,Update}Processor::fireAfterSaveEvent, and
+ *                          Resource/Create.php:659. Params: id, resource (Update also: mode, object).
+ *                          Fired by Resource/Create, Resource/Update AND Resource/UpdateFromGrid,
+ *                          all three via `public $afterSaveEvent = 'OnDocFormSave'`.
+ *     OnResourceUndelete   Resource/Update.php:891, Resource/Undelete.php:159,
+ *                          Resource/Trash/Restore.php:186. Params: id, resource.
+ *     OnResourceDuplicate  Resource/Duplicate.php:113. Params: newResource, oldResource — NO `id`,
+ *                          which is why the resource is resolved from several parameter names below.
+ *   modResource::duplicate() copies every resource-group membership (modResource.php:1191), so a
+ *   duplicate of a protected page is already protected and a duplicate of a SUPPORT page is not —
+ *   the second is the case this plugin is here for.
+ */
+
+$e = $modx->event;
+$eventName = $e ? $e->name : '';
+$params = ($e && is_array($e->params)) ? $e->params : [];
+
+// A declaration we cannot read is not a licence to guess. Log once, loudly, and leave the estate
+// exactly as it was — the monitor that found the 2026-07-29 exposure still finds this.
+$raw = $modx->getOption('access.model', null, '');
+$model = $raw !== '' ? json_decode($raw, true) : null;
+if (!is_array($model)) {
+    $modx->log(modX::LOG_LEVEL_ERROR, 'protectOnSave: system setting `access.model` is missing or '
+        . 'unparseable, so nothing was protected on this save. Run setup/04-access-control.py '
+        . '(or `wm run converge_modx_access`), which writes it. Event: ' . $eventName);
+    return;
+}
+
+// OnResourceDuplicate names the new one `newResource`; everything else names it `resource`. `id` is
+// present on the save/undelete events only. Take the object where one is offered and fall back to a
+// load by id — never the other way round, because the in-flight object is the saved state.
+$resource = null;
+foreach (['resource', 'newResource', 'object'] as $k) {
+    if (!empty($params[$k]) && $params[$k] instanceof MODX\Revolution\modResource) { $resource = $params[$k]; break; }
+}
+if (!$resource && !empty($params['id'])) {
+    $resource = $modx->getObject(MODX\Revolution\modResource::class, (int) $params['id']);
+}
+if (!$resource) {
+    $modx->log(modX::LOG_LEVEL_ERROR, 'protectOnSave: ' . $eventName . ' carried no resource this '
+        . 'code could resolve, so nothing was protected. Parameters seen: '
+        . implode(', ', array_keys($params)));
+    return;
+}
+
+$id  = (int) $resource->get('id');
+$ctx = (string) $resource->get('context_key');
+$cls = (string) $resource->get('class_key');
+
+// A context 04 does not manage has no declared groups, so there is nothing this can mean. `mgr` and
+// any context added without being declared land here, silently and correctly.
+if (!in_array($ctx, (array) ($model['contexts'] ?? []), true)) {
+    return;
+}
+// A resource in the recycle bin is not served, and 04 skips deleted rows too. The undelete event is
+// how it comes back, and that event fires after `deleted` is already 0.
+if ((int) $resource->get('deleted') === 1) {
+    return;
+}
+
+/**
+ * Add or remove one membership, idempotently. Returns 1 if the database changed.
+ * Written through the model rather than raw SQL so xPDO's own cache does not go stale under us.
+ */
+$member = function ($docId, $groupId, $wanted) use ($modx) {
+    $criteria = ['document' => (int) $docId, 'document_group' => (int) $groupId];
+    $row = $modx->getObject(MODX\Revolution\modResourceGroupResource::class, $criteria);
+    if ($wanted && !$row) {
+        $row = $modx->newObject(MODX\Revolution\modResourceGroupResource::class);
+        $row->fromArray($criteria, '', true);
+        return $row->save() ? 1 : 0;
+    }
+    if (!$wanted && $row) {
+        return $row->remove() ? 1 : 0;
+    }
+    return 0;
+};
+
+$changed = 0;
+$what    = '';
+
+if ($cls === ($model['doc_class'] ?? '') && !empty($model['protect_pages'])) {
+    $gid = (int) ($model['page_group_id'] ?? 0);
+    if ($gid <= 0) {
+        $modx->log(modX::LOG_LEVEL_ERROR, 'protectOnSave: the declaration names no id for resource '
+            . 'group `' . ($model['page_group'] ?? '?') . '`, so page ' . $id . ' was left as it was.');
+        return;
+    }
+    // The exemption, resolved the same mechanical way 04 resolves it: the context's ONE top-level
+    // container with the declared alias. Not a list. If it is not there, 04 would refuse to protect
+    // pages at all, and so does this.
+    $support = $modx->getObject(MODX\Revolution\modResource::class, [
+        'context_key' => $ctx,
+        'alias'       => (string) ($model['support_alias'] ?? ''),
+        'parent'      => 0,
+        'deleted'     => 0,
+    ]);
+    if (!$support) {
+        $modx->log(modX::LOG_LEVEL_ERROR, 'protectOnSave: context `' . $ctx . '` has no top-level `'
+            . ($model['support_alias'] ?? '?') . '` container, so page ' . $id . ' was left as it '
+            . 'was. Protecting without it risks protecting the sign-in page.');
+        return;
+    }
+    $supportId = (int) $support->get('id');
+    // THE SECOND EXEMPTION, read from the same declaration and restated nowhere: a
+    // page whose own CODE is the door. Matched on `uri`, which is the column MODx routes on and
+    // the column 04 matches — `alias` is only the last segment somebody typed, and the two
+    // differ on the actuator row itself. A save that protected this page would answer the estate's
+    // monitor a 302 to the sign-in page and the element behind it would never run.
+    $doorUri   = ltrim((string) $resource->get('uri'), '/');
+    $isDoor    = $doorUri !== '' && in_array($doorUri, (array) ($model['machine_doors'] ?? []), true);
+    $inSupport = ($id === $supportId || (int) $resource->get('parent') === $supportId);
+    $exempt    = $inSupport || $isDoor;
+    $changed   = $member($id, $gid, !$exempt);
+    // WHICH exemption, not just THAT one applied. The two have different reasons and different
+    // blast radii, and a log line saying only "left anonymous" cannot tell a misplaced content
+    // page under `support` from a machine door.
+    $what      = $inSupport
+        ? 'left anonymous (under `' . $model['support_alias'] . '`)'
+        : ($isDoor
+            ? 'left anonymous (machine door /' . $doorUri . ' — its element is the door)'
+            : 'protected via ' . ($model['page_group'] ?? $gid));
+} elseif ($cls === ($model['file_class'] ?? '') && !empty($model['protect_files'])) {
+    $gid = (int) (($model['file_group_ids'] ?? [])[$ctx] ?? 0);
+    if ($gid <= 0) {
+        $modx->log(modX::LOG_LEVEL_ERROR, 'protectOnSave: the declaration names no file group id for '
+            . 'context `' . $ctx . '`, so static resource ' . $id . ' was left as it was.');
+        return;
+    }
+    $changed = $member($id, $gid, true);
+    $what    = 'protected via ' . ((($model['file_groups'] ?? [])[$ctx]) ?? $gid);
+} else {
+    return;   // a class we do not manage, or its switch is off — both are decisions, not failures
+}
+
+if ($changed) {
+    // MODX caches a context's resource/ACL map, so a membership written now is not necessarily the
+    // one the next request reads. 04 clears the same two directories after it converges; this is the
+    // per-save equivalent, and it is deliberately NOT a full refresh(): the logs live under
+    // core/cache too, and a MODx with no error log is how the false model and the 500 loop above both hid.
+    $modx->cacheManager->refresh([
+        'context_settings' => [],
+        'resource'         => [],
+    ]);
+    $modx->log(modX::LOG_LEVEL_INFO, 'protectOnSave: ' . $eventName . ' ' . $cls . ' ' . $id
+        . ' in `' . $ctx . '` ' . $what);
+}

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en" class="h-100">
+[[$Bootstrap.5.Head]]
+<body>
+<!-- THE PAGE IS A FULL-HEIGHT COLUMN: the estate title bar and the site's sections are
+     the column's first children and do not shrink, and EVERYTHING ELSE SCROLLS INSIDE the second.
+     This is why the bar stays in view without `position: sticky` and without a z-index — rule 7 of
+     claude/shared/design/estate-title-bar.md forbids both, because a sticky bar carrying a z-index
+     opens a stacking context its own children cannot escape. The shared stylesheet's
+     `flex-shrink: 0` on .estate-bar is written for exactly this shell. -->
+<div style="display:flex; height:100vh; flex-direction:column;">
+    [[$topNavBar]]
+
+    <div style="flex:1 1 auto; overflow-y:auto; display:flex; flex-direction:column; justify-content:space-between;">
+    <div class="container-fluid">
+        <div id="modxPrintAddress" class="modx-print-only"></div>
+        [[*content]]
+    </div>
+    [[$Bootstrap.5.Footer]]
+    </div> <!-- the scrolling part of the page -->
+    [[$Bootstrap.5.Javascript]]
+</div>
+</body>
+</html>
